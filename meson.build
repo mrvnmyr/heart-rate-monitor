@@ -1,5 +1,5 @@
 project('polarh9-recorder', 'cpp',
-  version: '0.1.8',
+  version: '0.1.9',
   default_options: [
     'warning_level=2',
     'optimization=2',
@@ -11,12 +11,10 @@ project('polarh9-recorder', 'cpp',
 clangpp = find_program('clang++', required: true)
 
 system = host_machine.system()
-libsd_cargs = []
-libsd_link = []
+
+# Ensure libsystemd exists on non-Android, but keep args simple & portable.
 if system != 'android'
   libsd = dependency('libsystemd', required: true)
-  libsd_cargs = libsd.get_compile_args()
-  libsd_link = libsd.get_link_args()
 endif
 
 common_flags = ['-std=c++20', '-fmodules-ts', '-O2', '-g']
@@ -26,7 +24,7 @@ mod_obj = custom_target(
   'polarh9.obj',
   input: 'polarh9.cppm',
   output: 'polarh9.o',
-  command: [clangpp] + common_flags + libsd_cargs + [
+  command: [clangpp] + common_flags + [
     '-c', '@INPUT@', '-o', '@OUTPUT@'
   ],
   build_by_default: true
@@ -43,12 +41,17 @@ app_obj = custom_target(
   build_by_default: true
 )
 
-# Link the final binary with clang++
+# Link the final binary with clang++; add -lsystemd on Linux hosts.
+link_args = []
+if system != 'android'
+  link_args += ['-lsystemd']
+endif
+
 bin = custom_target(
   'polarh9',
   input: [app_obj, mod_obj],
   output: 'polarh9',
-  command: [clangpp, '@INPUT@', '-o', '@OUTPUT@'] + libsd_link,
+  command: [clangpp, '@INPUT@', '-o', '@OUTPUT@'] + link_args,
   install: true,
   install_dir: get_option('bindir'),
   build_by_default: true
@@ -58,5 +61,5 @@ summary({
   'Target OS' : system,
   'Compiler forced' : 'clang++',
   'Clang path' : clangpp.full_path(),
-  'Using libsystemd' : system != 'android',
+  'Link args' : link_args,
 })
