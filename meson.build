@@ -1,5 +1,5 @@
 project('polarh9-recorder', 'cpp',
-  version: '0.1.6',
+  version: '0.1.7',
   default_options: [
     'warning_level=2',
     'optimization=2',
@@ -8,6 +8,11 @@ project('polarh9-recorder', 'cpp',
 )
 
 cpp = meson.get_compiler('cpp')
+
+# Enforce Clang-only toolchain.
+if cpp.get_id() != 'clang'
+  error('This project currently supports **Clang** only.')
+endif
 
 # Keep Modules TS enabled for the module interface unit.
 if cpp.has_argument('-fmodules-ts')
@@ -21,8 +26,8 @@ if system != 'android'
   deps += dependency('libsystemd', required: true)
 endif
 
-# Compile the module interface with a custom_target using Meson's chosen compiler.
-# This avoids GCC/Meson BMI scanner quirks and works for cross builds too.
+# Compile the module interface with a custom_target using the chosen Clang.
+# We only need an object; the entry TU avoids importing to skip BMI wiring.
 mod_obj = custom_target(
   'polarh9.obj',
   input: 'polarh9.cppm',
@@ -37,7 +42,7 @@ mod_obj = custom_target(
 
 exe = executable(
   'polarh9',
-  ['app.cpp', 'polarh9_impl.cpp', mod_obj],
+  ['app.cppm', mod_obj],
   dependencies: deps,
   install: true
 )
@@ -45,4 +50,5 @@ exe = executable(
 summary({
   'Target OS' : host_machine.system(),
   'C++ modules flag used' : cpp.has_argument('-fmodules-ts'),
+  'Compiler' : cpp.get_id(),
 })

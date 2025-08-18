@@ -17,7 +17,7 @@ Dependencies (Arch Linux)
 -------------------------
 - bluez (daemon + libraries)
 - systemd-libs (for ``libsystemd`` / sd-bus)
-- a recent Clang or GCC with basic C++20 modules support
+- **Clang** (recent, with basic C++20 modules support)
 - meson (>= 0.60) and ninja
 
 Quick build (Arch)
@@ -33,19 +33,17 @@ Quick build (Arch)
 Notes
 -----
 - C++20 modules are used by providing a named module interface:
-    * ``polarh9.cppm`` — the module interface (exports ``int run()``).
-    * ``app.cpp`` — a tiny entry TU that *links* to the exported ``run()``
-      symbol (declared ``extern int run();``) to avoid GCC BMI ordering
-      issues. The module still builds as a named module unit.
-- The Meson build compiles the module interface via a ``custom_target``
-  that invokes the active C++ compiler (including in cross builds). This
-  sidesteps GCC/Meson module depfile quirks seen with direct compilation.
+    * ``polarh9.cppm`` — the module interface (exports and defines ``int run()``).
+    * ``app.cppm`` — a tiny entry TU that links to the exported ``run()`` to
+      avoid module BMI wiring. No ``import`` is required.
+- The Meson build compiles the module interface via a ``custom_target`` that
+  invokes the active Clang (including in cross builds).
 - The program assumes a default adapter path ``/org/bluez/hci0`` and uses
   modern BlueZ D-Bus APIs (no deprecated ``gatttool``).
 - It actively scans up to ~90s if the device isn't already known to BlueZ.
 - Output file is created at ``$HOME/.cache/polarh9`` (directories auto-created).
 - Extra debug prints have been added to help diagnose discovery, connection,
-  characteristic lookup, and notification flow.
+  characteristic lookup, notification flow, and entry points.
 
 Android
 -------
