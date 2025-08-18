@@ -1,5 +1,5 @@
 project('polarh9-recorder', 'cpp',
-  version: '0.1.5',
+  version: '0.1.6',
   default_options: [
     'warning_level=2',
     'optimization=2',
@@ -37,7 +37,7 @@ mod_obj = custom_target(
 
 exe = executable(
   'polarh9',
-  ['app.cpp', mod_obj],
+  ['app.cpp', 'polarh9_impl.cpp', mod_obj],
   dependencies: deps,
   install: true
 )
