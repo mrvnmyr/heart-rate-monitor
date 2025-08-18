@@ -7,39 +7,29 @@ project('polarh9-recorder', 'cpp',
   ],
 )
 
-# Always use clang++ to build & link, regardless of Meson's detected C++ compiler.
-clangpp = find_program('clang++', required: true)
-
 system = host_machine.system()
 
-# Ensure libsystemd exists on non-Android, but keep args simple & portable.
+# libsystemd is only required on non-Android builds.
+deps = []
 if system != 'android'
   libsd = dependency('libsystemd', required: true)
+  deps += [libsd]
 endif
 
-common_flags = ['-std=c++20', '-O2', '-g']
+# Keep debug info by default.
+add_project_arguments('-g', language: 'cpp')
 
-# Link the final binary with clang++; add -lsystemd on Linux hosts.
-link_args = []
-if system != 'android'
-  link_args += ['-lsystemd']
-endif
-
-# Single-translation-unit build: compile and link in one step via a custom target.
-bin = custom_target(
+# Build the single TU normally so Meson picks the right compiler
+# (NDK triplet for cross, host compiler for native).
+exe = executable(
   'polarh9',
-  input: 'main.cpp',
-  output: 'polarh9',
-  command: [clangpp] + common_flags + ['@INPUT@', '-o', '@OUTPUT@'] + link_args,
+  'main.cpp',
+  dependencies: deps,
   install: true,
   install_dir: get_option('bindir'),
-  build_by_default: true
 )
 
 summary({
   'Target OS' : system,
-  'Compiler forced' : 'clang++',
-  'Clang path' : clangpp.full_path(),
-  'Compile flags' : common_flags,
-  'Link args' : link_args,
+  'Dependencies' : deps,
 })
