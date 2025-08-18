@@ -33,6 +33,10 @@ namespace {
 
 using namespace std::chrono_literals;
 
+// static constexpr auto poll_time = 200000; // 0.2s
+static constexpr auto poll_time = 500000; // 0.5s
+// static constexpr auto poll_time = 1000000; // 1.0s
+
 // ---- debug flag and helper ----
 static bool g_debug = false;
 #define DBG if (::g_debug) std::cerr
@@ -623,7 +627,7 @@ int run_impl() {
     if (r == 0) {
       // Maintenance: ensure we stay connected and notifying
       ensure_connected_and_notifying(bus, *dev_path, *ch_path, slot, ctx);
-      r = sd_bus_wait(bus, 500000); // 0.5s
+      r = sd_bus_wait(bus, poll_time);
       if (r < 0) die("sd_bus_wait", r);
     }
   }
