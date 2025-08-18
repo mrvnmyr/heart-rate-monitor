@@ -19,11 +19,17 @@ endif
 # Keep debug info by default.
 add_project_arguments('-g', language: 'cpp')
 
-# Build the single TU normally so Meson picks the right compiler
-# (NDK triplet for cross, host compiler for native).
+# Sources split across translation units
+sources = [
+  'main.cpp',
+  'bluetooth.cpp',
+  'device_polar_h9.cpp',
+  'device_polar_h10.cpp',
+]
+
 exe = executable(
   'polarh9',
-  'main.cpp',
+  sources,
   dependencies: deps,
   install: true,
   install_dir: get_option('bindir'),
