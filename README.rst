@@ -3,8 +3,8 @@ polarh9 — Minimal Polar H9 recorder (BlueZ / sd-bus)
 
 Overview
 --------
-A tiny C++20 *modules* application that automatically finds a Bluetooth LE
-device named ``Polar H9 EA190E24``, connects to it via BlueZ D-Bus, enables
+A tiny **single-file** C++20 application that automatically finds a Bluetooth
+LE device named ``Polar H9 EA190E24``, connects to it via BlueZ D-Bus, enables
 notifications on the standard Heart Rate Measurement characteristic
 (UUID ``00002a37-0000-1000-8000-00805f9b34fb``), and writes each received
 packet as a line to ``$HOME/.cache/polarh9``.
@@ -17,7 +17,7 @@ Dependencies (Arch Linux)
 -------------------------
 - bluez (daemon + libraries)
 - systemd-libs (for ``libsystemd`` / sd-bus)
-- **Clang** (recent, with basic C++20 modules support)
+- **Clang** (recent)
 - meson (>= 0.60) and ninja
 
 Quick build (Arch)
@@ -32,27 +32,22 @@ Quick build (Arch)
 
 Notes
 -----
-- C++20 modules are used by providing a named module interface:
-    * ``polarh9.cppm`` — the module interface (exports and defines ``int run()``).
-    * ``app.cppm`` — a tiny entry TU that links to the exported ``run()`` to
-      avoid module BMI wiring. No ``import`` is required.
-- The Meson build compiles the module interface via a ``custom_target`` that
-  invokes the active Clang (including in cross builds).
+- Implementation is a single translation unit: ``main.cpp``.
+- We intentionally compile and link with ``clang++`` (see ``meson.build``).
 - The program assumes a default adapter path ``/org/bluez/hci0`` and uses
   modern BlueZ D-Bus APIs (no deprecated ``gatttool``).
 - It actively scans up to ~90s if the device isn't already known to BlueZ.
 - Output file is created at ``$HOME/.cache/polarh9`` (directories auto-created).
-- Extra debug prints have been added to help diagnose discovery, connection,
+- Extra debug prints are included to help diagnose discovery, connection,
   characteristic lookup, notification flow, and entry points.
 
 Android
 -------
-This project **builds** for Android using a cross file, but at runtime it
-prints a clear message and exits because Android does not expose BlueZ
-D-Bus. To capture Polar H9 data on Android you typically use the Java/Kotlin
-Bluetooth stack (e.g. via an Android app) and call into native code via JNI.
-Integrating the Android Bluetooth stack is beyond the scope of this minimal
-example.
+This project **builds** for Android using a cross file; the produced binary is
+a stub that prints a clear message and exits because Android does not expose
+BlueZ D-Bus. To capture Polar H9 data on Android you typically use the
+Java/Kotlin Bluetooth stack and call into native code via JNI. Integrating the
+Android Bluetooth stack is beyond the scope of this minimal example.
 
 Cross-compile example (Android arm64)
 -------------------------------------
@@ -71,5 +66,5 @@ Troubleshooting
 - Ensure your user can access Bluetooth (often just being in the ``lp``
   group on Arch or running from a desktop session is sufficient).
 - If the device is paired/remembered under a different alias, update
-  ``kTargetName`` in the source or pair/forget as needed with
+  the target name in the source or pair/forget as needed with
   ``bluetoothctl``.
