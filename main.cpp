@@ -129,7 +129,7 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
     if (r < 0) die("read object path", r);
     std::cerr << "[dbg] MO obj: " << (obj_path ? obj_path : "(null)") << "\n";
 
-    // FIX: element type for the interfaces array is "{sa{sv}}", not "sa{sv}"
+    // Correct element type for interfaces array is "{sa{sv}}"
     r = sd_bus_message_enter_container(reply, 'a', "{sa{sv}}");
     if (r < 0) die("enter a of interfaces", r);
 
@@ -307,6 +307,66 @@ int start_notify(sd_bus* bus, const std::string& char_path) {
   return call_void(bus, char_path, kGattChar1, "StartNotify");
 }
 
+// Helpers for reconnect handling
+bool path_has_interface(sd_bus* bus, const std::string& path, std::string_view iface) {
+  auto objs = get_managed_objects(bus);
+  for (const auto& e : objs) {
+    if (e.path == path && e.interface == iface) return true;
+  }
+  return false;
+}
+
+std::optional<bool> get_char_notifying(sd_bus* bus, const std::string& char_path) {
+  sd_bus_message* m = nullptr;
+  sd_bus_message* reply = nullptr;
+
+  int r = sd_bus_message_new_method_call(
+    bus, &m, std::string(kBluezService).c_str(),
+    char_path.c_str(),
+    std::string(kProps).c_str(),
+    "Get");
+  if (r < 0) return std::nullopt;
+
+  r = sd_bus_message_append(m, "ss",
+    std::string(kGattChar1).c_str(),
+    "Notifying");
+  if (r < 0) { sd_bus_message_unref(m); return std::nullopt; }
+
+  r = sd_bus_call(bus, m, 0, nullptr, &reply);
+  sd_bus_message_unref(m);
+  if (r < 0) return std::nullopt;
+
+  r = sd_bus_message_enter_container(reply, 'v', "b");
+  if (r < 0) { sd_bus_message_unref(reply); return std::nullopt; }
+
+  int notifying = 0;
+  r = sd_bus_message_read_basic(reply, 'b', &notifying);
+  if (r < 0) { sd_bus_message_exit_container(reply); sd_bus_message_unref(reply); return std::nullopt; }
+
+  sd_bus_message_exit_container(reply);
+  sd_bus_message_unref(reply);
+  return notifying != 0;
+}
+
+std::optional<std::string> reacquire_device(sd_bus* bus) {
+  // Attempt a quick discovery-assisted lookup
+  std::cerr << "[info] Reacquiring device by name via discovery...\n";
+  int r = call_void(bus, std::string(kAdapterPath), kAdapter1, "StartDiscovery");
+  if (r < 0) std::cerr << "[warn] StartDiscovery failed while reacquiring\n";
+
+  auto deadline = std::chrono::steady_clock::now() + 15s;
+  std::optional<std::string> dev_path;
+  while (std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(2s);
+    dev_path = find_device_by_name(bus, kTargetName);
+    if (dev_path) break;
+    std::cerr << "[dbg] reacquire: still scanning...\n";
+  }
+  call_void(bus, std::string(kAdapterPath), kAdapter1, "StopDiscovery");
+  if (!dev_path) std::cerr << "[warn] Reacquire failed: device still not found\n";
+  return dev_path;
+}
+
 // PropertiesChanged handler: extract "Value" (ay) updates and write a line to file.
 struct NotifyCtx {
   std::ofstream out;
@@ -370,7 +430,8 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
                 << " bytes, bpm=" << bpm
                 << ", hex=[" << to_hex(bytes) << "]\n";
       if (ctx && ctx->out.good()) {
-        ctx->out << t << "," << bpm << "," << to_hex(bytes) << "\n";
+        // Write only "timestamp,bpm"
+        ctx->out << t << "," << bpm << "\n";
         ctx->out.flush();
       }
     } else {
@@ -383,6 +444,82 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
 
   sd_bus_message_skip(m, "as"); // invalidated
   return 0;
+}
+
+// Ensure (re)connection and (re)subscription to notifications.
+void ensure_connected_and_notifying(sd_bus* bus,
+                                    std::string& dev_path,
+                                    std::string& ch_path,
+                                    sd_bus_slot*& slot,
+                                    NotifyCtx& ctx) {
+  // 1) Make sure we have/see the device path
+  if (dev_path.empty() || !path_has_interface(bus, dev_path, kDevice1)) {
+    std::cerr << "[warn] Device path missing; attempting reacquire...\n";
+    auto np = reacquire_device(bus);
+    if (np) {
+      dev_path = *np;
+      std::cerr << "[info] Reacquired device path: " << dev_path << "\n";
+    } else {
+      std::cerr << "[warn] Device still not present.\n";
+      return;
+    }
+  }
+
+  // 2) Ensure connection
+  if (!get_device_connected(bus, dev_path)) {
+    std::cerr << "[info] Connecting (maintenance)...\n";
+    int r = call_void(bus, dev_path, kDevice1, "Connect");
+    if (r < 0) { std::cerr << "[warn] Connect() failed in maintenance.\n"; return; }
+
+    auto deadline = std::chrono::steady_clock::now() + 20s;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (get_device_connected(bus, dev_path)) break;
+      std::this_thread::sleep_for(500ms);
+    }
+    if (!get_device_connected(bus, dev_path)) {
+      std::cerr << "[warn] Connect timeout in maintenance.\n";
+      return;
+    }
+    std::cerr << "[info] Connected (maintenance).\n";
+  }
+
+  // 3) Ensure we know the HR characteristic path
+  if (ch_path.empty() || !path_has_interface(bus, ch_path, kGattChar1)) {
+    auto np = find_hr_char(bus, dev_path);
+    if (!np) {
+      std::cerr << "[warn] HR characteristic not present yet.\n";
+      return;
+    }
+    if (np && *np != ch_path) {
+      std::cerr << "[info] HR characteristic path changed -> " << *np << "\n";
+      // Reinstall match for Value notifications on the new path
+      if (slot) { sd_bus_slot_unref(slot); slot = nullptr; }
+      ch_path = *np;
+      ctx.char_path = ch_path;
+      std::string match =
+        "type='signal',sender='org.bluez',interface='org.freedesktop.DBus.Properties',"
+        "member='PropertiesChanged',path='" + ch_path + "'";
+      int r = sd_bus_add_match(bus, &slot, match.c_str(), props_changed_cb, &ctx);
+      if (r < 0) die("sd_bus_add_match(PropertiesChanged re-add)", r);
+      std::cerr << "[dbg] Reinstalled Value match for " << ch_path << "\n";
+    }
+  }
+
+  // 4) Ensure notifications are started
+  if (!ch_path.empty()) {
+    auto n = get_char_notifying(bus, ch_path);
+    if (!n.has_value() || !*n) {
+      std::cerr << "[info] Notifying=false (or unknown). Calling StartNotify...\n";
+      int r = start_notify(bus, ch_path);
+      if (r < 0) {
+        std::cerr << "[warn] StartNotify failed in maintenance.\n";
+      } else {
+        std::cerr << "[info] StartNotify ok (maintenance).\n";
+      }
+    } else {
+      std::cerr << "[dbg] Notifying=true\n";
+    }
+  }
 }
 
 int run_impl() {
@@ -474,12 +611,14 @@ int run_impl() {
   if (r < 0) die("sd_bus_add_match(PropertiesChanged)", r);
 
   std::cerr << "[info] Listening for notifications (Ctrl+C to quit)...\n";
-  // 7) Simple event loop
+  // 7) Simple event loop with maintenance (1s tick)
   for (;;) {
     r = sd_bus_process(bus, nullptr);
     if (r < 0) die("sd_bus_process", r);
     if (r == 0) {
-      r = sd_bus_wait(bus, (uint64_t)-1);
+      // Maintenance: ensure we stay connected and notifying
+      ensure_connected_and_notifying(bus, *dev_path, *ch_path, slot, ctx);
+      r = sd_bus_wait(bus, 1000000); // 1s
       if (r < 0) die("sd_bus_wait", r);
     }
   }
