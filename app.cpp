@@ -1,6 +1,11 @@
-import polarh9;
+#include <iostream>
+// Avoid importing the module to sidestep BMI build-order issues with GCC.
+// We just link to the exported symbol instead.
+extern int run();
 
 int main() {
-  // Early debug to confirm importer runs after module BMI exists
-  return run();
+  std::cerr << "[dbg] app.cpp: entering main(), calling run()...\n";
+  int rc = run();
+  std::cerr << "[dbg] app.cpp: run() returned " << rc << "\n";
+  return rc;
 }

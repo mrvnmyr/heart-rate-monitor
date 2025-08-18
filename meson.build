@@ -1,5 +1,5 @@
 project('polarh9-recorder', 'cpp',
-  version: '0.1.2',
+  version: '0.1.3',
   default_options: [
     'warning_level=2',
     'optimization=2',
@@ -9,7 +9,7 @@ project('polarh9-recorder', 'cpp',
 
 cpp = meson.get_compiler('cpp')
 
-# Enable C++20 Modules TS if supported
+# Keep Modules TS enabled for the code that needs it.
 if cpp.has_argument('-fmodules-ts')
   add_project_arguments('-fmodules-ts', language: 'cpp')
 endif
@@ -18,20 +18,32 @@ system = host_machine.system()
 deps = []
 
 if system != 'android'
-  # libsystemd provides sd-bus (modern D-Bus API, not deprecated)
   deps += dependency('libsystemd', required: true)
 endif
 
-# IMPORTANT: put the module interface unit (.cppm) before importers.
-# Meson (>=1.3) auto-detects module dependencies better with .cppm/.ixx.
+# Work around GCC module BMI ordering/scanner issues by compiling the
+# module interface with a custom_target (no depfile flags).
+mod_src = files('polarh9.cppm')
+mod_obj = custom_target(
+  'polarh9.obj',
+  input: mod_src,
+  output: 'polarh9.o',
+  command: [
+    cpp.get_exelist(),
+    '-std=c++20', '-fmodules-ts', '-O2', '-g',
+    '-c', '@INPUT@', '-o', '@OUTPUT@'
+  ],
+  build_by_default: true
+)
+
 exe = executable(
   'polarh9',
-  ['polarh9.cppm', 'app.cpp'],
+  ['app.cpp', mod_obj],
   dependencies: deps,
   install: true
 )
 
 summary({
-  'Target OS' : system,
+  'Target OS' : host_machine.system(),
   'C++ modules flag used' : cpp.has_argument('-fmodules-ts'),
 })
