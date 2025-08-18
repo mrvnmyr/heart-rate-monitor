@@ -1,4 +1,4 @@
-module; // global module fragment: legacy/system headers go here
+module; // global module fragment: place all legacy headers here
 
 #include <systemd/sd-bus.h>
 #include <unistd.h>
@@ -478,6 +478,7 @@ static int run_impl() {
 
 // ---- module export: provide a single entry point for consumers ----
 export int run() {
+  std::cerr << "[dbg] run() entry (build " __DATE__ " " __TIME__ ")\n";
   try {
     return polarh9::run_impl();
   } catch (const std::exception& e) {
