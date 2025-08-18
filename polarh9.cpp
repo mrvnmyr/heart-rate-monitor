@@ -1,7 +1,4 @@
-export module polarh9;
-
-// Global module fragment for legacy includes
-module;
+module; // global module fragment: place all legacy headers here
 
 #include <systemd/sd-bus.h>
 #include <unistd.h>
@@ -25,10 +22,13 @@ module;
 #include <sstream>
 #include <algorithm>
 
-export namespace polarh9 {
+export module polarh9; // named module begins here
+
+namespace polarh9 {
 
 using namespace std::chrono_literals;
 
+// ---- constants (internal to module) ----
 static constexpr std::string_view kBluezService = "org.bluez";
 static constexpr std::string_view kObjManager = "org.freedesktop.DBus.ObjectManager";
 static constexpr std::string_view kProps = "org.freedesktop.DBus.Properties";
@@ -41,7 +41,7 @@ static constexpr std::string_view kTargetName = "Polar H9 EA190E24";
 static constexpr std::string_view kHRCharUUID = "00002a37-0000-1000-8000-00805f9b34fb";
 
 [[noreturn]] static void die(const char* msg, int err) {
-  std::cerr << "Error: " << msg << " (" << -err << "): " << strerror(-err) << "\n";
+  std::cerr << "[fatal] " << msg << " (" << -err << "): " << strerror(-err) << "\n";
   std::exit(EXIT_FAILURE);
 }
 
@@ -58,7 +58,11 @@ static std::string out_file_path() {
 
 static void ensure_parent_dir(const std::string& file) {
   std::filesystem::path p(file);
-  std::filesystem::create_directories(p.parent_path());
+  std::error_code ec;
+  std::filesystem::create_directories(p.parent_path(), ec);
+  if (ec) {
+    std::cerr << "[warn] create_directories failed: " << ec.message() << "\n";
+  }
 }
 
 static std::string to_hex(const std::vector<uint8_t>& v) {
@@ -71,7 +75,6 @@ static std::string to_hex(const std::vector<uint8_t>& v) {
 }
 
 static uint64_t now_ms() {
-  using clock = std::chrono::time_point<std::chrono::system_clock>;
   auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::system_clock::now().time_since_epoch());
   return (uint64_t)ms.count();
@@ -82,25 +85,23 @@ struct Bus {
   Bus() {
 #ifdef __ANDROID__
     // Android build is a stub (no BlueZ); gracefully inform and exit.
-    std::cerr << "Android build: BlueZ D-Bus not available. "
+    std::cerr << "[info] Android build: BlueZ D-Bus not available. "
                  "This binary is a build-time stub.\n";
     std::exit(0);
 #else
     int r = sd_bus_open_system(&bus);
     if (r < 0) die("sd_bus_open_system", r);
+    std::cerr << "[dbg] sd_bus_open_system() ok\n";
 #endif
   }
   ~Bus() { if (bus) sd_bus_unref(bus); }
   operator sd_bus*() const { return bus; }
 };
 
-// Call ObjectManager.GetManagedObjects and iterate to find:
-//  - a Device1 whose "Name" equals kTargetName  -> return its object path
-// Also used later to find GattCharacteristic1 with target UUID under a device path.
+// Minimal object entry we care about
 struct ManagedObjectsEntry {
   std::string path;
   std::string interface;
-  // Only the fields we care about
   std::optional<std::string> name;
   std::optional<std::string> uuid;
 };
@@ -154,7 +155,6 @@ static std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
         r = sd_bus_message_peek_type(reply, &vt, &vtsig);
         if (r < 0) die("peek variant type", r);
 
-        // We only care about a couple of string properties: "Name" and "UUID"
         if (vtsig && std::strcmp(vtsig, "s") == 0) {
           r = sd_bus_message_enter_container(reply, 'v', "s");
           if (r < 0) die("enter v(s)", r);
@@ -168,14 +168,11 @@ static std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
             entry.name = sval ? std::string(sval) : std::string();
           } else if (prop && std::strcmp(prop, "UUID") == 0) {
             std::string u = sval ? std::string(sval) : std::string();
-            // Normalize lowercase
-            std::transform(u.begin(), u.end(), u.begin(), [](unsigned char c){return (char)std::tolower(c);});
+            std::transform(u.begin(), u.end(), u.begin(),
+                           [](unsigned char c){return (char)std::tolower(c);});
             entry.uuid = std::move(u);
-          } else {
-            // ignore other string properties
           }
         } else {
-          // Skip other property types
           r = sd_bus_message_skip(reply, "v");
           if (r < 0) die("skip variant", r);
         }
@@ -187,7 +184,6 @@ static std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
       r = sd_bus_message_exit_container(reply); // end a{sv}
       if (r < 0) die("exit a{sv}", r);
 
-      // We push an entry per interface so we can filter later
       out.push_back(std::move(entry));
 
       r = sd_bus_message_exit_container(reply); // end dict entry (sa{sv})
@@ -207,13 +203,16 @@ static std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
   if (r < 0) die("exit outer array", r);
 
   sd_bus_message_unref(reply);
+  std::cerr << "[dbg] GetManagedObjects -> " << out.size() << " iface entries\n";
   return out;
 }
 
 static std::optional<std::string> find_device_by_name(sd_bus* bus, std::string_view name) {
+  std::cerr << "[dbg] Searching for device with Name='" << name << "'\n";
   auto objs = get_managed_objects(bus);
   for (const auto& e : objs) {
     if (e.interface == kDevice1 && e.name && *e.name == name) {
+      std::cerr << "[dbg] Matched device path: " << e.path << "\n";
       return e.path;
     }
   }
@@ -231,8 +230,10 @@ static int call_void(sd_bus* bus, const std::string& path,
     std::string(method).data(),
     &error, &reply, "");
   if (r < 0) {
-    std::cerr << "D-Bus error: " << (error.name ? error.name : "unknown")
+    std::cerr << "[err] D-Bus: " << (error.name ? error.name : "unknown")
               << " - " << (error.message ? error.message : "") << "\n";
+  } else {
+    std::cerr << "[dbg] call " << iface << "." << method << " on " << path << " -> ok\n";
   }
   sd_bus_error_free(&error);
   sd_bus_message_unref(reply);
@@ -259,7 +260,6 @@ static bool get_device_connected(sd_bus* bus, const std::string& dev_path) {
   sd_bus_message_unref(m);
   if (r < 0) return false;
 
-  // reply: v
   r = sd_bus_message_enter_container(reply, 'v', "b");
   if (r < 0) die("enter v(b)", r);
   int connected = 0;
@@ -276,14 +276,14 @@ static std::optional<std::string> find_hr_char(sd_bus* bus, const std::string& d
   auto objs = get_managed_objects(bus);
   for (const auto& e : objs) {
     if (e.interface == kGattChar1) {
-      // only consider characteristics under this device subtree
-      if (e.path.rfind(dev_path, 0) == 0 /* starts with */) {
+      if (e.path.rfind(dev_path, 0) == 0) { // starts_with
         if (e.uuid) {
           std::string u = *e.uuid;
           std::string needle(kHRCharUUID);
           std::transform(needle.begin(), needle.end(), needle.begin(),
                          [](unsigned char c){return (char)std::tolower(c);});
           if (u == needle) {
+            std::cerr << "[dbg] Found HR characteristic at: " << e.path << "\n";
             return e.path;
           }
         }
@@ -294,6 +294,7 @@ static std::optional<std::string> find_hr_char(sd_bus* bus, const std::string& d
 }
 
 static int start_notify(sd_bus* bus, const std::string& char_path) {
+  std::cerr << "[dbg] Starting notifications on: " << char_path << "\n";
   return call_void(bus, char_path, kGattChar1, "StartNotify");
 }
 
@@ -315,7 +316,6 @@ static int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret
     return 0; // not our interface
   }
 
-  // changed properties dict
   r = sd_bus_message_enter_container(m, 'a', "{sv}");
   if (r < 0) return 0;
 
@@ -345,7 +345,6 @@ static int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret
       sd_bus_message_exit_container(m); // end array
       sd_bus_message_exit_container(m); // end variant
 
-      // Parse Heart Rate Measurement (spec)
       int bpm = -1;
       if (bytes.size() >= 2) {
         uint8_t flags = bytes[0];
@@ -358,13 +357,13 @@ static int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret
       }
 
       uint64_t t = now_ms();
+      std::cerr << "[dbg] Notification: " << bytes.size()
+                << " bytes, bpm=" << bpm << "\n";
       if (ctx && ctx->out.good()) {
-        // line: epoch_ms,bpm,hex
         ctx->out << t << "," << bpm << "," << to_hex(bytes) << "\n";
         ctx->out.flush();
       }
     } else {
-      // Skip other variants
       r = sd_bus_message_skip(m, "v");
       if (r < 0) break;
     }
@@ -372,55 +371,55 @@ static int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret
   }
   sd_bus_message_exit_container(m); // end dict
 
-  // invalidated props array (we can skip)
-  sd_bus_message_skip(m, "as");
+  sd_bus_message_skip(m, "as"); // invalidated
   return 0;
 }
 
-static void run() {
+static int run_impl() {
   Bus bus;
 
   std::string outfile = out_file_path();
   ensure_parent_dir(outfile);
   std::ofstream out(outfile, std::ios::app);
   if (!out) {
-    std::cerr << "Failed to open output file: " << outfile << "\n";
-    std::exit(EXIT_FAILURE);
+    std::cerr << "[err] Failed to open output file: " << outfile << "\n";
+    return EXIT_FAILURE;
   }
 
-  std::cerr << "Output -> " << outfile << "\n";
+  std::cerr << "[info] Output -> " << outfile << "\n";
 
   // 1) Try to find device right away
   std::optional<std::string> dev_path = find_device_by_name(bus, kTargetName);
 
   // 2) If not found, StartDiscovery and poll until we see it
   if (!dev_path) {
-    std::cerr << "Starting discovery on " << std::string(kAdapterPath) << " ...\n";
+    std::cerr << "[info] Starting discovery on " << std::string(kAdapterPath) << " ...\n";
     int r = call_void(bus, std::string(kAdapterPath), kAdapter1, "StartDiscovery");
     if (r < 0) die("StartDiscovery", r);
 
     auto deadline = std::chrono::steady_clock::now() + 90s; // wait up to 90s
+    int iter = 0;
     while (std::chrono::steady_clock::now() < deadline) {
       std::this_thread::sleep_for(2s);
       dev_path = find_device_by_name(bus, kTargetName);
       if (dev_path) break;
-      std::cerr << "Scanning for \"" << kTargetName << "\"...\n";
+      std::cerr << "[dbg] scan iteration " << (++iter) << " ... not yet found\n";
     }
 
     // Stop discovery (even if not found)
     call_void(bus, std::string(kAdapterPath), kAdapter1, "StopDiscovery");
 
     if (!dev_path) {
-      std::cerr << "Device not found.\n";
-      std::exit(EXIT_FAILURE);
+      std::cerr << "[err] Device not found after scan.\n";
+      return EXIT_FAILURE;
     }
   }
 
-  std::cerr << "Found device path: " << *dev_path << "\n";
+  std::cerr << "[info] Found device path: " << *dev_path << "\n";
 
   // 3) Connect (no-op if already connected)
   if (!get_device_connected(bus, *dev_path)) {
-    std::cerr << "Connecting...\n";
+    std::cerr << "[info] Connecting...\n";
     int r = call_void(bus, *dev_path, kDevice1, "Connect");
     if (r < 0) die("Connect", r);
 
@@ -431,19 +430,19 @@ static void run() {
       std::this_thread::sleep_for(500ms);
     }
     if (!get_device_connected(bus, *dev_path)) {
-      std::cerr << "Failed to connect (timeout).\n";
-      std::exit(EXIT_FAILURE);
+      std::cerr << "[err] Failed to connect (timeout).\n";
+      return EXIT_FAILURE;
     }
   }
-  std::cerr << "Connected.\n";
+  std::cerr << "[info] Connected.\n";
 
   // 4) Find Heart Rate Measurement characteristic
   auto ch_path = find_hr_char(bus, *dev_path);
   if (!ch_path) {
-    std::cerr << "Heart Rate Measurement characteristic not found.\n";
-    std::exit(EXIT_FAILURE);
+    std::cerr << "[err] Heart Rate Measurement characteristic not found.\n";
+    return EXIT_FAILURE;
   }
-  std::cerr << "Heart Rate characteristic: " << *ch_path << "\n";
+  std::cerr << "[info] Heart Rate characteristic: " << *ch_path << "\n";
 
   // 5) StartNotify (enables CCCD internally)
   int r = start_notify(bus, *ch_path);
@@ -457,12 +456,13 @@ static void run() {
     "interface='org.freedesktop.DBus.Properties',"
     "member='PropertiesChanged',"
     "path='" + *ch_path + "'";
+  std::cerr << "[dbg] Installing D-Bus match: " << match << "\n";
 
   sd_bus_slot* slot = nullptr;
   r = sd_bus_add_match(bus, &slot, match.c_str(), props_changed_cb, &ctx);
   if (r < 0) die("sd_bus_add_match(PropertiesChanged)", r);
 
-  std::cerr << "Listening for notifications (Ctrl+C to quit)...\n";
+  std::cerr << "[info] Listening for notifications (Ctrl+C to quit)...\n";
   // 7) Simple event loop
   for (;;) {
     r = sd_bus_process(bus, nullptr);
@@ -476,13 +476,12 @@ static void run() {
 
 } // namespace polarh9
 
-// Define main within the module unit (no separate headers needed)
-int main() {
+// ---- module export: provide a single entry point for consumers ----
+export int run() {
   try {
-    polarh9::run();
+    return polarh9::run_impl();
   } catch (const std::exception& e) {
-    std::cerr << "Unhandled exception: " << e.what() << "\n";
-    return 1;
+    std::cerr << "[fatal] Unhandled exception: " << e.what() << "\n";
+    return EXIT_FAILURE;
   }
-  return 0;
 }

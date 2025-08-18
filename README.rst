@@ -24,7 +24,7 @@ Quick build (Arch)
 ------------------
 .. code-block:: bash
 
-   meson setup build
+   meson setup --reconfigure build
    meson compile -C build
 
    # Run (ensure bluetoothd is running and device is advertising)
@@ -32,10 +32,16 @@ Quick build (Arch)
 
 Notes
 -----
+- Uses C++20 modules correctly by splitting into:
+    * ``polarh9.cpp`` — the named module (exports ``int run()``).
+    * ``app.cpp`` — a simple entry TU that ``import``s the module and defines
+      ``main``.
 - The program assumes a default adapter path ``/org/bluez/hci0`` and uses
   modern BlueZ D-Bus APIs (no deprecated ``gatttool``).
 - It actively scans up to ~90s if the device isn't already known to BlueZ.
 - Output file is created at ``$HOME/.cache/polarh9`` (directories auto-created).
+- Extra debug prints have been added to help diagnose discovery, connection,
+  characteristic lookup, and notification flow.
 
 Android
 -------
@@ -44,7 +50,7 @@ prints a clear message and exits because Android does not expose BlueZ
 D-Bus. To capture Polar H9 data on Android you typically use the Java/Kotlin
 Bluetooth stack (e.g. via an Android app) and call into native code via JNI.
 Integrating the Android Bluetooth stack is beyond the scope of this minimal
-single-file example.
+example.
 
 Cross-compile example (Android arm64)
 -------------------------------------
@@ -59,8 +65,7 @@ Set ``ANDROID_NDK_HOME`` to your NDK path and then:
 
 File format
 -----------
-- No headers, a single C++20 module unit (``polarh9.cpp``).
-- No subdirectories.
+- No headers; C++20 modules are used (no subdirectories).
 - Meson build is minimal and avoids deprecated APIs.
 
 Troubleshooting

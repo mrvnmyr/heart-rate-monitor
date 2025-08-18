@@ -1,5 +1,5 @@
 project('polarh9-recorder', 'cpp',
-  version: '0.1.0',
+  version: '0.1.1',
   default_options: [
     'warning_level=2',
     'optimization=2',
@@ -24,7 +24,7 @@ endif
 
 exe = executable(
   'polarh9',
-  'polarh9.cpp',
+  ['app.cpp', 'polarh9.cpp'],
   dependencies: deps,
   install: true
 )
