@@ -33,6 +33,10 @@ namespace {
 
 using namespace std::chrono_literals;
 
+// ---- debug flag and helper ----
+static bool g_debug = false;
+#define DBG if (::g_debug) std::cerr
+
 // ---- constants ----
 static constexpr std::string_view kBluezService = "org.bluez";
 static constexpr std::string_view kObjManager = "org.freedesktop.DBus.ObjectManager";
@@ -90,7 +94,7 @@ struct Bus {
   Bus() {
     int r = sd_bus_open_system(&bus);
     if (r < 0) die("sd_bus_open_system", r);
-    std::cerr << "[dbg] sd_bus_open_system() ok\n";
+    DBG << "[dbg] sd_bus_open_system() ok\n";
   }
   ~Bus() { if (bus) sd_bus_unref(bus); }
   operator sd_bus*() const { return bus; }
@@ -127,7 +131,7 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
     const char* obj_path = nullptr;
     r = sd_bus_message_read_basic(reply, 'o', &obj_path);
     if (r < 0) die("read object path", r);
-    std::cerr << "[dbg] MO obj: " << (obj_path ? obj_path : "(null)") << "\n";
+    DBG << "[dbg] MO obj: " << (obj_path ? obj_path : "(null)") << "\n";
 
     // Correct element type for interfaces array is "{sa{sv}}"
     r = sd_bus_message_enter_container(reply, 'a', "{sa{sv}}");
@@ -139,8 +143,8 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
       r = sd_bus_message_read_basic(reply, 's', &iface);
       if (r < 0) die("read interface name", r);
       ++iface_count;
-      std::cerr << "[dbg]   iface[" << iface_count << "]: "
-                << (iface ? iface : "(null)") << "\n";
+      DBG << "[dbg]   iface[" << iface_count << "]: "
+          << (iface ? iface : "(null)") << "\n";
 
       r = sd_bus_message_enter_container(reply, 'a', "{sv}");
       if (r < 0) die("enter a{sv}", r);
@@ -158,8 +162,8 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
         const char* vtsig = nullptr;
         r = sd_bus_message_peek_type(reply, &vt, &vtsig);
         if (r < 0) die("peek variant type", r);
-        std::cerr << "[dbg]     prop: " << (prop ? prop : "(null)")
-                  << " vtype=" << (vtsig ? vtsig : "(null)") << "\n";
+        DBG << "[dbg]     prop: " << (prop ? prop : "(null)")
+            << " vtype=" << (vtsig ? vtsig : "(null)") << "\n";
 
         if (vtsig && std::strcmp(vtsig, "s") == 0) {
           r = sd_bus_message_enter_container(reply, 'v', "s");
@@ -172,13 +176,13 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
 
           if (prop && std::strcmp(prop, "Name") == 0) {
             entry.name = sval ? std::string(sval) : std::string();
-            std::cerr << "[dbg]       Name=" << *entry.name << "\n";
+            DBG << "[dbg]       Name=" << *entry.name << "\n";
           } else if (prop && std::strcmp(prop, "UUID") == 0) {
             std::string u = sval ? std::string(sval) : std::string();
             std::transform(u.begin(), u.end(), u.begin(),
                            [](unsigned char c){return (char)std::tolower(c);});
             entry.uuid = std::move(u);
-            std::cerr << "[dbg]       UUID=" << *entry.uuid << "\n";
+            DBG << "[dbg]       UUID=" << *entry.uuid << "\n";
           }
         } else {
           r = sd_bus_message_skip(reply, "v");
@@ -197,7 +201,7 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
       r = sd_bus_message_exit_container(reply); // end dict entry (sa{sv})
       if (r < 0) die("exit (sa{sv})", r);
     }
-    std::cerr << "[dbg]   iface_count=" << iface_count << "\n";
+    DBG << "[dbg]   iface_count=" << iface_count << "\n";
 
     r = sd_bus_message_exit_container(reply); // end a of interfaces
     if (r < 0) die("exit a of interfaces", r);
@@ -212,16 +216,16 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
   if (r < 0) die("exit outer array", r);
 
   sd_bus_message_unref(reply);
-  std::cerr << "[dbg] GetManagedObjects -> " << out.size() << " iface entries\n";
+  DBG << "[dbg] GetManagedObjects -> " << out.size() << " iface entries\n";
   return out;
 }
 
 std::optional<std::string> find_device_by_name(sd_bus* bus, std::string_view name) {
-  std::cerr << "[dbg] Searching for device with Name='" << name << "'\n";
+  DBG << "[dbg] Searching for device with Name='" << name << "'\n";
   auto objs = get_managed_objects(bus);
   for (const auto& e : objs) {
     if (e.interface == kDevice1 && e.name && *e.name == name) {
-      std::cerr << "[dbg] Matched device path: " << e.path << "\n";
+      DBG << "[dbg] Matched device path: " << e.path << "\n";
       return e.path;
     }
   }
@@ -242,7 +246,7 @@ int call_void(sd_bus* bus, const std::string& path,
     std::cerr << "[err] D-Bus: " << (error.name ? error.name : "unknown")
               << " - " << (error.message ? error.message : "") << "\n";
   } else {
-    std::cerr << "[dbg] call " << iface << "." << method << " on " << path << " -> ok\n";
+    DBG << "[dbg] call " << iface << "." << method << " on " << path << " -> ok\n";
   }
   sd_bus_error_free(&error);
   sd_bus_message_unref(reply);
@@ -292,7 +296,7 @@ std::optional<std::string> find_hr_char(sd_bus* bus, const std::string& dev_path
           std::transform(needle.begin(), needle.end(), needle.begin(),
                          [](unsigned char c){return (char)std::tolower(c);});
           if (u == needle) {
-            std::cerr << "[dbg] Found HR characteristic at: " << e.path << "\n";
+            DBG << "[dbg] Found HR characteristic at: " << e.path << "\n";
             return e.path;
           }
         }
@@ -303,7 +307,7 @@ std::optional<std::string> find_hr_char(sd_bus* bus, const std::string& dev_path
 }
 
 int start_notify(sd_bus* bus, const std::string& char_path) {
-  std::cerr << "[dbg] Starting notifications on: " << char_path << "\n";
+  DBG << "[dbg] Starting notifications on: " << char_path << "\n";
   return call_void(bus, char_path, kGattChar1, "StartNotify");
 }
 
@@ -360,7 +364,7 @@ std::optional<std::string> reacquire_device(sd_bus* bus) {
     std::this_thread::sleep_for(2s);
     dev_path = find_device_by_name(bus, kTargetName);
     if (dev_path) break;
-    std::cerr << "[dbg] reacquire: still scanning...\n";
+    DBG << "[dbg] reacquire: still scanning...\n";
   }
   call_void(bus, std::string(kAdapterPath), kAdapter1, "StopDiscovery");
   if (!dev_path) std::cerr << "[warn] Reacquire failed: device still not found\n";
@@ -426,9 +430,9 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
       }
 
       uint64_t t = now_ms();
-      std::cerr << "[dbg] Notification: " << bytes.size()
-                << " bytes, bpm=" << bpm
-                << ", hex=[" << to_hex(bytes) << "]\n";
+      DBG << "[dbg] Notification: " << bytes.size()
+          << " bytes, bpm=" << bpm
+          << ", hex=[" << to_hex(bytes) << "]\n";
       if (ctx && ctx->out.good()) {
         // Write only "timestamp,bpm"
         ctx->out << t << "," << bpm << "\n";
@@ -452,6 +456,7 @@ void ensure_connected_and_notifying(sd_bus* bus,
                                     std::string& ch_path,
                                     sd_bus_slot*& slot,
                                     NotifyCtx& ctx) {
+  DBG << "[dbg] maintenance tick: ensuring connection and notifications\n";
   // 1) Make sure we have/see the device path
   if (dev_path.empty() || !path_has_interface(bus, dev_path, kDevice1)) {
     std::cerr << "[warn] Device path missing; attempting reacquire...\n";
@@ -501,7 +506,7 @@ void ensure_connected_and_notifying(sd_bus* bus,
         "member='PropertiesChanged',path='" + ch_path + "'";
       int r = sd_bus_add_match(bus, &slot, match.c_str(), props_changed_cb, &ctx);
       if (r < 0) die("sd_bus_add_match(PropertiesChanged re-add)", r);
-      std::cerr << "[dbg] Reinstalled Value match for " << ch_path << "\n";
+      DBG << "[dbg] Reinstalled Value match for " << ch_path << "\n";
     }
   }
 
@@ -517,13 +522,13 @@ void ensure_connected_and_notifying(sd_bus* bus,
         std::cerr << "[info] StartNotify ok (maintenance).\n";
       }
     } else {
-      std::cerr << "[dbg] Notifying=true\n";
+      DBG << "[dbg] Notifying=true\n";
     }
   }
 }
 
 int run_impl() {
-  std::cerr << "[dbg] run_impl(): starting\n";
+  DBG << "[dbg] run_impl(): starting\n";
   Bus bus;
 
   std::string outfile = out_file_path();
@@ -551,7 +556,7 @@ int run_impl() {
       std::this_thread::sleep_for(2s);
       dev_path = find_device_by_name(bus, kTargetName);
       if (dev_path) break;
-      std::cerr << "[dbg] scan iteration " << (++iter) << " ... not yet found\n";
+      DBG << "[dbg] scan iteration " << (++iter) << " ... not yet found\n";
     }
 
     // Stop discovery (even if not found)
@@ -604,21 +609,20 @@ int run_impl() {
     "interface='org.freedesktop.DBus.Properties',"
     "member='PropertiesChanged',"
     "path='" + *ch_path + "'";
-  std::cerr << "[dbg] Installing D-Bus match: " << match << "\n";
+  DBG << "[dbg] Installing D-Bus match: " << match << "\n";
 
   sd_bus_slot* slot = nullptr;
   r = sd_bus_add_match(bus, &slot, match.c_str(), props_changed_cb, &ctx);
   if (r < 0) die("sd_bus_add_match(PropertiesChanged)", r);
 
   std::cerr << "[info] Listening for notifications (Ctrl+C to quit)...\n";
-  // 7) Simple event loop with maintenance (1s tick)
+  // 7) Simple event loop with maintenance (0.5s tick)
   for (;;) {
     r = sd_bus_process(bus, nullptr);
     if (r < 0) die("sd_bus_process", r);
     if (r == 0) {
       // Maintenance: ensure we stay connected and notifying
       ensure_connected_and_notifying(bus, *dev_path, *ch_path, slot, ctx);
-      // r = sd_bus_wait(bus, 1000000); // 1s
       r = sd_bus_wait(bus, 500000); // 0.5s
       if (r < 0) die("sd_bus_wait", r);
     }
@@ -627,11 +631,18 @@ int run_impl() {
 
 } // anonymous namespace
 
-int main() {
-  std::cerr << "[dbg] main(): entering, compiler=" << __VERSION__
-            << ", __cplusplus=" << __cplusplus << ", file=" << __FILE__ << "\n";
+int main(int argc, char** argv) {
+  // Parse flags: -d or --debug enables [dbg] messages
+  for (int i = 1; i < argc; ++i) {
+    if (std::string_view(argv[i]) == "-d" || std::string_view(argv[i]) == "--debug") {
+      g_debug = true;
+    }
+  }
+  DBG << "[dbg] main(): debug enabled\n";
+  DBG << "[dbg] main(): compiler=" << __VERSION__
+      << ", __cplusplus=" << __cplusplus << ", file=" << __FILE__ << "\n";
   int rc = run_impl();
-  std::cerr << "[dbg] main(): run_impl() returned " << rc << "\n";
+  DBG << "[dbg] main(): run_impl() returned " << rc << "\n";
   return rc;
 }
 #endif
