@@ -1,5 +1,5 @@
 project('polarh9-recorder', 'cpp',
-  version: '0.1.1',
+  version: '0.1.2',
   default_options: [
     'warning_level=2',
     'optimization=2',
@@ -9,7 +9,7 @@ project('polarh9-recorder', 'cpp',
 
 cpp = meson.get_compiler('cpp')
 
-# Try to enable C++20 modules TS if supported (harmless if not)
+# Enable C++20 Modules TS if supported
 if cpp.has_argument('-fmodules-ts')
   add_project_arguments('-fmodules-ts', language: 'cpp')
 endif
@@ -22,9 +22,11 @@ if system != 'android'
   deps += dependency('libsystemd', required: true)
 endif
 
+# IMPORTANT: put the module interface unit (.cppm) before importers.
+# Meson (>=1.3) auto-detects module dependencies better with .cppm/.ixx.
 exe = executable(
   'polarh9',
-  ['app.cpp', 'polarh9.cpp'],
+  ['polarh9.cppm', 'app.cpp'],
   dependencies: deps,
   install: true
 )

@@ -33,7 +33,7 @@ Quick build (Arch)
 Notes
 -----
 - Uses C++20 modules correctly by splitting into:
-    * ``polarh9.cpp`` — the named module (exports ``int run()``).
+    * ``polarh9.cppm`` — the named module (exports ``int run()``).
     * ``app.cpp`` — a simple entry TU that ``import``s the module and defines
       ``main``.
 - The program assumes a default adapter path ``/org/bluez/hci0`` and uses
@@ -66,6 +66,8 @@ Set ``ANDROID_NDK_HOME`` to your NDK path and then:
 File format
 -----------
 - No headers; C++20 modules are used (no subdirectories).
+- Module interface file uses the standard ``.cppm`` extension so Meson/GCC
+  can order module compilation before importers.
 - Meson build is minimal and avoids deprecated APIs.
 
 Troubleshooting
