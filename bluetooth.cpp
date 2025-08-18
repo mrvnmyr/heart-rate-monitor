@@ -378,7 +378,7 @@ void ensure_connected_and_notifying(sd_bus* bus,
         "member='PropertiesChanged',path='" + ch_path + "'";
       int r = sd_bus_add_match(bus, &slot, match.c_str(), props_changed_cb, nullptr);
       if (r < 0) die("sd_bus_add_match(PropertiesChanged re-add)", r);
-      DBG << "[dbg] Reinstalled HR Value match for " << ch_path << "\n";
+      DBG << "[dbg] Reinstalled HR Value match for " << ch_path << " (slot=" << (void*)slot << ")\n";
     }
   }
 
@@ -410,6 +410,10 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
 
   r = sd_bus_message_enter_container(m, 'a', "{sv}");
   if (r < 0) return 0;
+
+  // Deduplication state (per-process, single-threaded loop)
+  static std::string s_last_line;
+  static uint64_t s_suppressed = 0;
 
   while ((r = sd_bus_message_enter_container(m, 'e', "sv")) > 0) {
     const char* prop = nullptr;
@@ -483,13 +487,21 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
         DBG << "[dbg] HRM notify: empty payload\n";
       }
 
-      // STDOUT: timestamp[,bpm][,rr1,rr2,...]
-      std::ostringstream line;
-      line << t;
-      if (bpm >= 0) line << "," << bpm;
-      for (int v : rr_ms) line << "," << v;
-      std::cout << line.str() << "\n";
-      std::cout.flush();
+      // Build output line and suppress duplicates
+      std::ostringstream line_oss;
+      line_oss << t;
+      if (bpm >= 0) line_oss << "," << bpm;
+      for (int v : rr_ms) line_oss << "," << v;
+      std::string out = line_oss.str();
+
+      if (!s_last_line.empty() && out == s_last_line) {
+        ++s_suppressed;
+        DBG << "[dbg] duplicate line suppressed (" << s_suppressed << "): " << out << "\n";
+      } else {
+        std::cout << out << "\n";
+        std::cout.flush();
+        s_last_line = std::move(out);
+      }
     } else {
       r = sd_bus_message_skip(m, "v");
       if (r < 0) break;
