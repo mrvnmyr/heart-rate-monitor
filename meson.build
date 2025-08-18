@@ -1,5 +1,5 @@
 project('polarh9-recorder', 'cpp',
-  version: '0.1.9',
+  version: '0.1.10',
   default_options: [
     'warning_level=2',
     'optimization=2',
@@ -17,7 +17,8 @@ if system != 'android'
   libsd = dependency('libsystemd', required: true)
 endif
 
-common_flags = ['-std=c++20', '-fmodules-ts', '-O2', '-g']
+# Clang's C++20 modules do NOT use '-fmodules-ts' (that was a GCC flag).
+common_flags = ['-std=c++20', '-O2', '-g']
 
 # Build the module implementation object with clang++
 mod_obj = custom_target(
@@ -61,5 +62,6 @@ summary({
   'Target OS' : system,
   'Compiler forced' : 'clang++',
   'Clang path' : clangpp.full_path(),
+  'Compile flags' : common_flags,
   'Link args' : link_args,
 })
