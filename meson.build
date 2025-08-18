@@ -1,4 +1,4 @@
-project('polarh9-recorder', 'cpp',
+project('polarm', 'cpp',
   version: '0.1.11',
   default_options: [
     'warning_level=2',
@@ -28,7 +28,7 @@ sources = [
 ]
 
 exe = executable(
-  'polarh9',
+  'polarm',
   sources,
   dependencies: deps,
   install: true,
