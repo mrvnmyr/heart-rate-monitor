@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <vector>
 #include <thread>
@@ -12,12 +13,28 @@ using namespace std::chrono_literals;
 
 bool g_debug = false;  // defined for debug.hpp / other TUs
 
+static void print_help(const char* prog) {
+  const char* p = (prog && *prog) ? prog : "polarm";
+  std::cout
+    << "polarm — Minimal Polar H9/H10 heart-rate recorder\n\n"
+    << "Usage: " << p << " [options]\n\n"
+    << "Options:\n"
+    << "  -h, --help      Show this help and exit\n"
+    << "  -d, --debug     Verbose debug logs to stderr\n\n"
+    << "Output:\n"
+    << "  Lines to stdout in the form: <epoch_ms>,<bpm>[,<rr_ms>...]\n"
+    << "  RR values are converted from 1/1024 s ticks to milliseconds.\n";
+}
+
 static int run_impl() {
   DBG << "[dbg] run_impl(): starting\n";
+  DBG << "[dbg] assuming default adapter at /org/bluez/hci0\n";
   Bus bus;
 
   // Prefer H10 if both appear
   std::vector<std::string_view> names = { polar_h10_name(), polar_h9_name() };
+  DBG << "[dbg] target device names (priority order): '"
+      << names[0] << "', '" << names[1] << "'\n";
   auto dev = find_any_device_by_names(bus, names);
 
   // Scan if not found
@@ -66,6 +83,7 @@ static int run_impl() {
   // Find Heart Rate Measurement characteristic
   static constexpr std::string_view kHRCharUUID =
     "00002a37-0000-1000-8000-00805f9b34fb";
+  DBG << "[dbg] searching for HRM characteristic uuid=" << kHRCharUUID << "\n";
   auto ch_path_opt = find_char_by_uuid(bus, dev->path, kHRCharUUID);
   if (!ch_path_opt) {
     std::cerr << "[err] Heart Rate Measurement characteristic not found.\n";
@@ -79,6 +97,7 @@ static int run_impl() {
     std::cerr << "[err] StartNotify failed\n";
     return EXIT_FAILURE;
   }
+  DBG << "[dbg] StartNotify returned ok; subscribing to PropertiesChanged\n";
 
   // Subscribe to PropertiesChanged on that HR path
   std::string match =
@@ -116,12 +135,22 @@ static int run_impl() {
 }
 
 int main(int argc, char** argv) {
-  // Parse flags: -d or --debug enables [dbg] messages (stderr)
+  bool show_help = false;
+
+  // Parse flags
   for (int i = 1; i < argc; ++i) {
     if (std::string_view(argv[i]) == "-d" || std::string_view(argv[i]) == "--debug") {
       g_debug = true;
+    } else if (std::string_view(argv[i]) == "-h" || std::string_view(argv[i]) == "--help") {
+      show_help = true;
     }
   }
+
+  if (show_help) {
+    print_help(argv[0]);
+    return 0;
+  }
+
   DBG << "[dbg] main(): debug enabled\n";
   DBG << "[dbg] main(): compiler=" << __VERSION__
       << ", __cplusplus=" << __cplusplus << ", file=" << __FILE__ << "\n";
