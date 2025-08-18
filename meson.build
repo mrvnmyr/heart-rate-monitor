@@ -1,11 +1,9 @@
 project('polarh9-recorder', 'cpp',
-  version: '0.1.4',
+  version: '0.1.5',
   default_options: [
     'warning_level=2',
     'optimization=2',
     'cpp_std=c++20',
-    # Work around GCC modules depfile bug: disable depfiles globally.
-    'b_depfiles=false',
   ],
 )
 
@@ -23,10 +21,23 @@ if system != 'android'
   deps += dependency('libsystemd', required: true)
 endif
 
-# Build normally; depfiles are disabled so GCC won't trip on modules.
+# Compile the module interface with a custom_target using Meson's chosen compiler.
+# This avoids GCC/Meson BMI scanner quirks and works for cross builds too.
+mod_obj = custom_target(
+  'polarh9.obj',
+  input: 'polarh9.cppm',
+  output: 'polarh9.o',
+  command: [
+    cpp.cmd_array(),
+    '-std=c++20', '-fmodules-ts', '-O2', '-g',
+    '-c', '@INPUT@', '-o', '@OUTPUT@'
+  ],
+  build_by_default: true
+)
+
 exe = executable(
   'polarh9',
-  ['polarh9.cppm', 'app.cpp'],
+  ['app.cpp', mod_obj],
   dependencies: deps,
   install: true
 )
@@ -34,5 +45,4 @@ exe = executable(
 summary({
   'Target OS' : host_machine.system(),
   'C++ modules flag used' : cpp.has_argument('-fmodules-ts'),
-  'Depfiles disabled' : get_option('b_depfiles'),
 })
