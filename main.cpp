@@ -69,6 +69,12 @@ std::string out_file_path() {
   return p.string();
 }
 
+std::string out_rr_file_path() {
+  std::string home = getenv_or("HOME", ".");
+  std::filesystem::path p = std::filesystem::path(home) / ".cache" / "polarh9rr";
+  return p.string();
+}
+
 void ensure_parent_dir(const std::string& file) {
   std::filesystem::path p(file);
   std::error_code ec;
@@ -377,7 +383,8 @@ std::optional<std::string> reacquire_device(sd_bus* bus) {
 
 // PropertiesChanged handler: extract "Value" (ay) updates and write a line to file.
 struct NotifyCtx {
-  std::ofstream out;
+  std::ofstream out;     // BPM stream
+  std::ofstream rr_out;  // RR intervals stream
   std::string char_path;
 };
 
@@ -422,25 +429,69 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
       sd_bus_message_exit_container(m); // end array
       sd_bus_message_exit_container(m); // end variant
 
+      uint64_t t = now_ms();
+
+      // ---- Parse Heart Rate Measurement (Bluetooth SIG) ----
       int bpm = -1;
-      if (bytes.size() >= 2) {
+      std::vector<int> rr_ms; // milliseconds
+
+      if (!bytes.empty()) {
         uint8_t flags = bytes[0];
-        bool sixteen = (flags & 0x01) != 0;
-        if (!sixteen && bytes.size() >= 2) {
-          bpm = bytes[1];
-        } else if (sixteen && bytes.size() >= 3) {
-          bpm = (int)bytes[1] | ((int)bytes[2] << 8);
+        size_t idx = 1;
+
+        bool hr_16bit     = (flags & 0x01) != 0;
+        bool ee_present   = (flags & 0x08) != 0;
+        bool rr_present   = (flags & 0x10) != 0;
+
+        if (hr_16bit) {
+          if (bytes.size() >= idx + 2) {
+            bpm = (int)bytes[idx] | ((int)bytes[idx + 1] << 8);
+            idx += 2;
+          }
+        } else {
+          if (bytes.size() >= idx + 1) {
+            bpm = bytes[idx];
+            idx += 1;
+          }
         }
+
+        // Skip Energy Expended if present (uint16)
+        if (ee_present && bytes.size() >= idx + 2) {
+          idx += 2;
+        }
+
+        // RR-Intervals (uint16 each, units = 1/1024 s)
+        if (rr_present) {
+          while (bytes.size() >= idx + 2) {
+            uint16_t rr1024 = (uint16_t)bytes[idx] | ((uint16_t)bytes[idx + 1] << 8);
+            idx += 2;
+            // Convert to milliseconds with rounding
+            int rr_val_ms = (int)((rr1024 * 1000ULL + 512ULL) / 1024ULL);
+            rr_ms.push_back(rr_val_ms);
+          }
+        }
+
+        DBG << "[dbg] HRM parse: flags=0x" << std::hex << (int)flags << std::dec
+            << " hr16=" << hr_16bit
+            << " ee=" << ee_present
+            << " rr=" << rr_present
+            << " bpm=" << bpm
+            << " rr_count=" << rr_ms.size()
+            << " bytes=[" << to_hex(bytes) << "]\n";
+      } else {
+        DBG << "[dbg] HRM parse: empty payload\n";
       }
 
-      uint64_t t = now_ms();
-      DBG << "[dbg] Notification: " << bytes.size()
-          << " bytes, bpm=" << bpm
-          << ", hex=[" << to_hex(bytes) << "]\n";
+      // ---- Write outputs ----
       if (ctx && ctx->out.good()) {
-        // Write only "timestamp,bpm"
         ctx->out << t << "," << bpm << "\n";
         ctx->out.flush();
+      }
+      if (ctx && ctx->rr_out.good() && !rr_ms.empty()) {
+        for (int rrval : rr_ms) {
+          ctx->rr_out << t << "," << rrval << "\n";
+        }
+        ctx->rr_out.flush();
       }
     } else {
       r = sd_bus_message_skip(m, "v");
@@ -536,14 +587,23 @@ int run_impl() {
   Bus bus;
 
   std::string outfile = out_file_path();
+  std::string out_rrfile = out_rr_file_path();
   ensure_parent_dir(outfile);
+  ensure_parent_dir(out_rrfile);
+
   std::ofstream out(outfile, std::ios::app);
   if (!out) {
     std::cerr << "[err] Failed to open output file: " << outfile << "\n";
     return EXIT_FAILURE;
   }
+  std::ofstream rr_out(out_rrfile, std::ios::app);
+  if (!rr_out) {
+    std::cerr << "[err] Failed to open RR output file: " << out_rrfile << "\n";
+    return EXIT_FAILURE;
+  }
 
   std::cerr << "[info] Output -> " << outfile << "\n";
+  std::cerr << "[info] RR Output -> " << out_rrfile << "\n";
 
   // 1) Try to find device right away
   std::optional<std::string> dev_path = find_device_by_name(bus, kTargetName);
@@ -606,7 +666,7 @@ int run_impl() {
   if (r < 0) die("StartNotify", r);
 
   // 6) Subscribe to PropertiesChanged on that path
-  NotifyCtx ctx{std::move(out), *ch_path};
+  NotifyCtx ctx{std::move(out), std::move(rr_out), *ch_path};
   std::string match =
     "type='signal',"
     "sender='org.bluez',"
