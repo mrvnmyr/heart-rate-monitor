@@ -618,7 +618,8 @@ int run_impl() {
     if (r == 0) {
       // Maintenance: ensure we stay connected and notifying
       ensure_connected_and_notifying(bus, *dev_path, *ch_path, slot, ctx);
-      r = sd_bus_wait(bus, 1000000); // 1s
+      // r = sd_bus_wait(bus, 1000000); // 1s
+      r = sd_bus_wait(bus, 500000); // 0.5s
       if (r < 0) die("sd_bus_wait", r);
     }
   }
