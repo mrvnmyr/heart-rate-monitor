@@ -54,25 +54,6 @@ Notes
   characteristic lookup, notification flow, value parsing (flags/BPM/RR),
   battery and generic streams, and entry points. Use ``-d``/``--debug``.
 
-Android
--------
-This project **builds** for Android using a cross file; the produced binary is
-a stub that prints a clear message and exits because Android does not expose
-BlueZ D-Bus. To capture Polar H9/H10 data on Android you typically use the
-Java/Kotlin Bluetooth stack and call into native code via JNI. Integrating the
-Android Bluetooth stack is beyond the scope of this minimal example.
-
-Cross-compile example (Android arm64)
--------------------------------------
-Set ``ANDROID_NDK_HOME`` to your NDK path and then:
-
-.. code-block:: bash
-
-   meson setup build-android \
-     --cross-file android-arm64.cross
-
-   meson compile -C build-android
-
 Troubleshooting
 ---------------
 - Make sure ``bluetoothd`` is running: ``sudo systemctl status bluetooth``

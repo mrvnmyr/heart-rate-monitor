@@ -1,11 +1,3 @@
-#ifdef __ANDROID__
-#include <iostream>
-int main() {
-  std::cerr << "[info] Android build: BlueZ D-Bus not available. "
-               "This binary is a build-time stub.\n";
-  return 0;
-}
-#else
 #include <iostream>
 #include <string_view>
 #include <vector>
@@ -137,4 +129,3 @@ int main(int argc, char** argv) {
   DBG << "[dbg] main(): run_impl() returned " << rc << "\n";
   return rc;
 }
-#endif
