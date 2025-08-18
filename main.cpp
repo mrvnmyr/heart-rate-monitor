@@ -127,14 +127,20 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
     const char* obj_path = nullptr;
     r = sd_bus_message_read_basic(reply, 'o', &obj_path);
     if (r < 0) die("read object path", r);
+    std::cerr << "[dbg] MO obj: " << (obj_path ? obj_path : "(null)") << "\n";
 
-    r = sd_bus_message_enter_container(reply, 'a', "sa{sv}");
+    // FIX: element type for the interfaces array is "{sa{sv}}", not "sa{sv}"
+    r = sd_bus_message_enter_container(reply, 'a', "{sa{sv}}");
     if (r < 0) die("enter a of interfaces", r);
 
+    int iface_count = 0;
     while ((r = sd_bus_message_enter_container(reply, 'e', "sa{sv}")) > 0) {
       const char* iface = nullptr;
       r = sd_bus_message_read_basic(reply, 's', &iface);
       if (r < 0) die("read interface name", r);
+      ++iface_count;
+      std::cerr << "[dbg]   iface[" << iface_count << "]: "
+                << (iface ? iface : "(null)") << "\n";
 
       r = sd_bus_message_enter_container(reply, 'a', "{sv}");
       if (r < 0) die("enter a{sv}", r);
@@ -152,6 +158,8 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
         const char* vtsig = nullptr;
         r = sd_bus_message_peek_type(reply, &vt, &vtsig);
         if (r < 0) die("peek variant type", r);
+        std::cerr << "[dbg]     prop: " << (prop ? prop : "(null)")
+                  << " vtype=" << (vtsig ? vtsig : "(null)") << "\n";
 
         if (vtsig && std::strcmp(vtsig, "s") == 0) {
           r = sd_bus_message_enter_container(reply, 'v', "s");
@@ -164,11 +172,13 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
 
           if (prop && std::strcmp(prop, "Name") == 0) {
             entry.name = sval ? std::string(sval) : std::string();
+            std::cerr << "[dbg]       Name=" << *entry.name << "\n";
           } else if (prop && std::strcmp(prop, "UUID") == 0) {
             std::string u = sval ? std::string(sval) : std::string();
             std::transform(u.begin(), u.end(), u.begin(),
                            [](unsigned char c){return (char)std::tolower(c);});
             entry.uuid = std::move(u);
+            std::cerr << "[dbg]       UUID=" << *entry.uuid << "\n";
           }
         } else {
           r = sd_bus_message_skip(reply, "v");
@@ -187,6 +197,7 @@ std::vector<ManagedObjectsEntry> get_managed_objects(sd_bus* bus) {
       r = sd_bus_message_exit_container(reply); // end dict entry (sa{sv})
       if (r < 0) die("exit (sa{sv})", r);
     }
+    std::cerr << "[dbg]   iface_count=" << iface_count << "\n";
 
     r = sd_bus_message_exit_container(reply); // end a of interfaces
     if (r < 0) die("exit a of interfaces", r);
