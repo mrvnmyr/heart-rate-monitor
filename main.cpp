@@ -12,6 +12,7 @@
 using namespace std::chrono_literals;
 
 bool g_debug = false;  // defined for debug.hpp / other TUs
+bool g_health_warnings = false;
 
 static void print_help(const char* prog) {
   const char* p = (prog && *prog) ? prog : "polarm";
@@ -20,7 +21,8 @@ static void print_help(const char* prog) {
     << "Usage: " << p << " [options]\n\n"
     << "Options:\n"
     << "  -h, --help      Show this help and exit\n"
-    << "  -d, --debug     Verbose debug logs to stderr\n\n"
+    << "  -d, --debug     Verbose debug logs to stderr\n"
+    << "  --health-warnings  Emit brady/tachy/arrhythmia warnings\n\n"
     << "Output:\n"
     << "  Lines to stdout in the form: <epoch_ms>,<bpm>[,<rr_ms>...]\n"
     << "  RR values are converted from 1/1024 s ticks to milliseconds.\n";
@@ -141,6 +143,8 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {
     if (std::string_view(argv[i]) == "-d" || std::string_view(argv[i]) == "--debug") {
       g_debug = true;
+    } else if (std::string_view(argv[i]) == "--health-warnings") {
+      g_health_warnings = true;
     } else if (std::string_view(argv[i]) == "-h" || std::string_view(argv[i]) == "--help") {
       show_help = true;
     }

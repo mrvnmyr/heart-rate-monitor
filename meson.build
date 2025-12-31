@@ -25,6 +25,9 @@ sources = [
   'bluetooth.cpp',
   'device_polar_h9.cpp',
   'device_polar_h10.cpp',
+  'health_bradycardia.cpp',
+  'health_tachycardia.cpp',
+  'health_arrythmia.cpp',
 ]
 
 exe = executable(

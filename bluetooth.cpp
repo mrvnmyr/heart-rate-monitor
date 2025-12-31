@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <iostream>
 
+#include "health.hpp"
+
 using namespace std::chrono_literals;
 
 // ---- constants ----
@@ -498,6 +500,15 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
         ++s_suppressed;
         DBG << "[dbg] duplicate line suppressed (" << s_suppressed << "): " << out << "\n";
       } else {
+        if (g_health_warnings) {
+          if (bpm >= 0) {
+            health_check_bradycardia(bpm);
+            health_check_tachycardia(bpm);
+          }
+          if (!rr_ms.empty()) {
+            health_check_arrhythmia(rr_ms);
+          }
+        }
         std::cout << out << "\n";
         std::cout.flush();
         s_last_line = std::move(out);
