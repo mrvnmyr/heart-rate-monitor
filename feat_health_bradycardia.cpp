@@ -14,7 +14,7 @@ void health_check_bradycardia(int bpm, long long ts_ms) {
   if (now && !s_active) {
     s_start_ms = ts_ms;
     s_lowest_bpm = bpm;
-    health_emit_warning("Bradycardia: bpm < 60 (" + std::to_string(bpm) + ")");
+    health_emit_warning("Bradycardia (bpm < 60)");
   } else if (now && s_active) {
     s_lowest_bpm = std::min(s_lowest_bpm, bpm);
   } else if (!now && s_active) {

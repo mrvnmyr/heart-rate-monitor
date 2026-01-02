@@ -14,7 +14,7 @@ void health_check_tachycardia(int bpm, long long ts_ms) {
   if (now && !s_active) {
     s_start_ms = ts_ms;
     s_highest_bpm = bpm;
-    health_emit_warning("Tachycardia: bpm > 100 (" + std::to_string(bpm) + ")");
+    health_emit_warning("Tachycardia (bpm > 100)");
   } else if (now && s_active) {
     s_highest_bpm = std::max(s_highest_bpm, bpm);
   } else if (!now && s_active) {
