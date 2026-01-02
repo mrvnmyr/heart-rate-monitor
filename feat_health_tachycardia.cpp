@@ -21,7 +21,7 @@ void health_check_tachycardia(int bpm, long long ts_ms) {
     long long dur_ms = (ts_ms >= s_start_ms) ? (ts_ms - s_start_ms) : 0;
     double dur_s = static_cast<double>(dur_ms) / 1000.0;
     std::ostringstream oss;
-    oss << "Recovered from tachycardia duration="
+    oss << "Tachycardia recovered duration="
         << std::fixed << std::setprecision(1) << dur_s
         << "s highest_bpm=" << s_highest_bpm;
     health_emit_warning(oss.str());

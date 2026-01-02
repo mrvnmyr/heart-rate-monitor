@@ -21,7 +21,7 @@ void health_check_bradycardia(int bpm, long long ts_ms) {
     long long dur_ms = (ts_ms >= s_start_ms) ? (ts_ms - s_start_ms) : 0;
     double dur_s = static_cast<double>(dur_ms) / 1000.0;
     std::ostringstream oss;
-    oss << "Recovered from bradycardia duration="
+    oss << "Bradycardia recovered duration="
         << std::fixed << std::setprecision(1) << dur_s
         << "s lowest_bpm=" << s_lowest_bpm;
     health_emit_warning(oss.str());
