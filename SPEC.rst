@@ -61,6 +61,18 @@ rings the terminal bell (``\a``) on detection of:
     cleaned RR segments (RMSSD/meanRR, TPR, Shannon entropy).
 AF detection here is a screening signal only; clinical AF diagnosis requires
 ECG evidence (irregularly irregular RR plus absent P-waves) over >= 30 s.
+During a bradycardia or tachycardia episode, the program tracks duration and
+extreme BPM. When the heart rate returns to normal, it emits a recovery warning
+that reports the elapsed time and lowest/highest BPM.
+
+Features
+--------
+- Live capture: discover/connect to a Polar strap, subscribe to HRM notifications,
+  and stream parsed readings to stdout.
+- Health screening: optional warnings for bradycardia, tachycardia, and RR-based
+  arrhythmia heuristics.
+- Log analysis: ``--analyze-log`` replays stdout logs, runs the same health
+  checks, and timestamps warnings based on the logged epoch.
 
 Operational Flow
 ----------------
@@ -89,6 +101,9 @@ Key Components
 - ``main.cpp``: CLI, scan/connect flow, event loop, D-Bus match setup.
 - ``bluetooth.cpp`` / ``bluetooth.hpp``: BlueZ D-Bus helpers, parsing, callbacks.
 - ``device_polar_h9.cpp`` / ``device_polar_h10.cpp``: device name constants.
+- ``feat_analyze_log.cpp`` / ``feat_analyze_log.hpp``: log parsing and replayed
+  health checks for ``--analyze-log``.
+- ``feat_health.hpp`` / ``feat_health_*.cpp``: health warning logic and metrics.
 - ``meson.build``: build configuration (C++20, clang++, libsystemd).
 
 Dependencies
