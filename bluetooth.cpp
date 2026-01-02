@@ -533,8 +533,8 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
       } else {
         if (g_health_warnings) {
           if (bpm >= 0) {
-            health_check_bradycardia(bpm);
-            health_check_tachycardia(bpm);
+            health_check_bradycardia(bpm, t);
+            health_check_tachycardia(bpm, t);
           }
           if (!rr_ms.empty()) {
             health_check_arrhythmia(rr_ms);

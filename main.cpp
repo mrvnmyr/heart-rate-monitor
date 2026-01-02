@@ -17,6 +17,7 @@ using namespace std::chrono_literals;
 bool g_debug = false;  // defined for debug.hpp / other TUs
 bool g_health_warnings = false;
 std::string g_health_warning_prefix;
+long long g_health_warning_ts_ms = -1;
 
 static void print_help(const char* prog) {
   const char* p = (prog && *prog) ? prog : "polarm";
@@ -73,12 +74,14 @@ static int analyze_log(const std::string& path) {
     }
 
     g_health_warning_prefix = "ts=" + std::to_string(ts);
-    health_check_bradycardia(bpm);
-    health_check_tachycardia(bpm);
+    g_health_warning_ts_ms = ts;
+    health_check_bradycardia(bpm, ts);
+    health_check_tachycardia(bpm, ts);
     if (!rr_ms.empty()) {
       health_check_arrhythmia(rr_ms);
     }
     g_health_warning_prefix.clear();
+    g_health_warning_ts_ms = -1;
   }
 
   return 0;
