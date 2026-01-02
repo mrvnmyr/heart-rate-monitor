@@ -1,12 +1,13 @@
 #pragma once
-#include <iostream>
 #include <string_view>
 #include <vector>
+
+#include "debug.hpp"
 
 extern bool g_health_warnings;
 
 inline void health_emit_warning(std::string_view msg) {
-  std::cerr << '\a' << "[warn] " << msg << "\n";
+  ERR << '\a' << "[warn] " << msg << "\n";
 }
 
 void health_check_bradycardia(int bpm);

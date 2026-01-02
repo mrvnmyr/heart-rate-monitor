@@ -41,9 +41,9 @@ static int run_impl() {
 
   // Scan if not found
   if (!dev) {
-    std::cerr << "[info] Starting discovery...\n";
+    ERR << "[info] Starting discovery...\n";
     if (start_adapter_discovery(bus) < 0) {
-      std::cerr << "[err] StartDiscovery failed\n";
+      ERR << "[err] StartDiscovery failed\n";
       return EXIT_FAILURE;
     }
     auto deadline = std::chrono::steady_clock::now() + 90s;
@@ -56,18 +56,18 @@ static int run_impl() {
     }
     stop_adapter_discovery(bus);
     if (!dev) {
-      std::cerr << "[err] Device not found after scan.\n";
+      ERR << "[err] Device not found after scan.\n";
       return EXIT_FAILURE;
     }
   }
 
-  std::cerr << "[info] Found device: " << dev->name << " path: " << dev->path << "\n";
+  ERR << "[info] Found device: " << dev->name << " path: " << dev->path << "\n";
 
   // Connect if needed
   if (!get_device_connected(bus, dev->path)) {
-    std::cerr << "[info] Connecting...\n";
+    ERR << "[info] Connecting...\n";
     if (call_void(bus, dev->path, "org.bluez.Device1", "Connect") < 0) {
-      std::cerr << "[err] Connect failed\n";
+      ERR << "[err] Connect failed\n";
       return EXIT_FAILURE;
     }
     auto deadline = std::chrono::steady_clock::now() + 20s;
@@ -76,27 +76,54 @@ static int run_impl() {
       std::this_thread::sleep_for(500ms);
     }
     if (!get_device_connected(bus, dev->path)) {
-      std::cerr << "[err] Failed to connect (timeout).\n";
+      ERR << "[err] Failed to connect (timeout).\n";
       return EXIT_FAILURE;
     }
   }
-  std::cerr << "[info] Connected.\n";
+  ERR << "[info] Connected.\n";
 
-  // Find Heart Rate Measurement characteristic
+  // Find Heart Rate Measurement characteristic (retryable on some devices)
   static constexpr std::string_view kHRCharUUID =
     "00002a37-0000-1000-8000-00805f9b34fb";
   DBG << "[dbg] searching for HRM characteristic uuid=" << kHRCharUUID << "\n";
   auto ch_path_opt = find_char_by_uuid(bus, dev->path, kHRCharUUID);
   if (!ch_path_opt) {
-    std::cerr << "[err] Heart Rate Measurement characteristic not found.\n";
-    return EXIT_FAILURE;
+    ERR << "[warn] Heart Rate Measurement characteristic not found; retrying...\n";
+    auto deadline = std::chrono::steady_clock::now() + 60s;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (!get_device_connected(bus, dev->path)) {
+        ERR << "[info] Reconnecting while waiting for HR characteristic...\n";
+        if (call_void(bus, dev->path, "org.bluez.Device1", "Connect") < 0) {
+          ERR << "[warn] Connect failed during HR characteristic retry.\n";
+        } else {
+          auto conn_deadline = std::chrono::steady_clock::now() + 20s;
+          while (std::chrono::steady_clock::now() < conn_deadline) {
+            if (get_device_connected(bus, dev->path)) break;
+            std::this_thread::sleep_for(500ms);
+          }
+          if (get_device_connected(bus, dev->path)) {
+            ERR << "[info] Connected (retry).\n";
+          } else {
+            ERR << "[warn] Connect timeout during HR characteristic retry.\n";
+          }
+        }
+      }
+
+      ch_path_opt = find_char_by_uuid(bus, dev->path, kHRCharUUID);
+      if (ch_path_opt) break;
+      std::this_thread::sleep_for(1s);
+    }
+    if (!ch_path_opt) {
+      ERR << "[err] Heart Rate Measurement characteristic not found (timeout).\n";
+      return EXIT_FAILURE;
+    }
   }
   std::string ch_path = *ch_path_opt;
-  std::cerr << "[info] Heart Rate characteristic: " << ch_path << "\n";
+  ERR << "[info] Heart Rate characteristic: " << ch_path << "\n";
 
   // Start notifications
   if (start_notify(bus, ch_path) < 0) {
-    std::cerr << "[err] StartNotify failed\n";
+    ERR << "[err] StartNotify failed\n";
     return EXIT_FAILURE;
   }
   DBG << "[dbg] StartNotify returned ok; subscribing to PropertiesChanged\n";
@@ -113,23 +140,23 @@ static int run_impl() {
   sd_bus_slot* slot = nullptr;
   int r = sd_bus_add_match(bus, &slot, match.c_str(), props_changed_cb, nullptr);
   if (r < 0) {
-    std::cerr << "[err] sd_bus_add_match failed: " << -r << "\n";
+    ERR << "[err] sd_bus_add_match failed: " << -r << "\n";
     return EXIT_FAILURE;
   }
 
-  std::cerr << "[info] Listening for BPM/RR notifications (Ctrl+C to quit)...\n";
+  ERR << "[info] Listening for BPM/RR notifications (Ctrl+C to quit)...\n";
   // Event loop with maintenance (0.5s tick)
   for (;;) {
     r = sd_bus_process(bus, nullptr);
     if (r < 0) {
-      std::cerr << "[fatal] sd_bus_process: " << -r << "\n";
+      ERR << "[fatal] sd_bus_process: " << -r << "\n";
       return EXIT_FAILURE;
     }
     if (r == 0) {
       ensure_connected_and_notifying(bus, dev->path, ch_path, slot, names);
       r = sd_bus_wait(bus, 500000); // 0.5s
       if (r < 0) {
-        std::cerr << "[fatal] sd_bus_wait: " << -r << "\n";
+        ERR << "[fatal] sd_bus_wait: " << -r << "\n";
         return EXIT_FAILURE;
       }
     }

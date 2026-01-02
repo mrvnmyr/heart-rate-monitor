@@ -32,7 +32,7 @@ static constexpr std::string_view kHRCharUUID = "00002a37-0000-1000-8000-00805f9
 
 // ---- helpers ----
 [[noreturn]] static void die(const char* msg, int err) {
-  std::cerr << "[fatal] " << msg << " (" << -err << "): " << strerror(-err) << "\n";
+  ERR << "[fatal] " << msg << " (" << -err << "): " << strerror(-err) << "\n";
   std::exit(EXIT_FAILURE);
 }
 
@@ -190,7 +190,9 @@ std::optional<FoundDev> find_any_device_by_names(sd_bus* bus,
 }
 
 int call_void(sd_bus* bus, const std::string& path,
-              std::string_view iface, std::string_view method) {
+              std::string_view iface, std::string_view method,
+              std::string* out_err_name,
+              std::string* out_err_msg) {
   sd_bus_error error = SD_BUS_ERROR_NULL;
   sd_bus_message* reply = nullptr;
   int r = sd_bus_call_method(bus,
@@ -200,7 +202,9 @@ int call_void(sd_bus* bus, const std::string& path,
     std::string(method).data(),
     &error, &reply, "");
   if (r < 0) {
-    std::cerr << "[err] D-Bus: " << (error.name ? error.name : "unknown")
+    if (out_err_name) *out_err_name = error.name ? error.name : "";
+    if (out_err_msg) *out_err_msg = error.message ? error.message : "";
+    ERR << "[err] D-Bus: " << (error.name ? error.name : "unknown")
               << " - " << (error.message ? error.message : "") << "\n";
   } else {
     DBG << "[dbg] call " << iface << "." << method << " on " << path << " -> ok\n";
@@ -312,9 +316,9 @@ int stop_adapter_discovery(sd_bus* bus) {
 
 std::optional<std::string> reacquire_device(sd_bus* bus,
                                             const std::vector<std::string_view>& names) {
-  std::cerr << "[info] Reacquiring device by name via discovery...\n";
+  ERR << "[info] Reacquiring device by name via discovery...\n";
   if (start_adapter_discovery(bus) < 0)
-    std::cerr << "[warn] StartDiscovery failed while reacquiring\n";
+    ERR << "[warn] StartDiscovery failed while reacquiring\n";
 
   auto deadline = std::chrono::steady_clock::now() + 15s;
   std::optional<FoundDev> dev;
@@ -325,7 +329,7 @@ std::optional<std::string> reacquire_device(sd_bus* bus,
     DBG << "[dbg] reacquire: still scanning...\n";
   }
   stop_adapter_discovery(bus);
-  if (!dev) std::cerr << "[warn] Reacquire failed: device still not found\n";
+  if (!dev) ERR << "[warn] Reacquire failed: device still not found\n";
   return dev ? std::optional<std::string>(dev->path) : std::nullopt;
 }
 
@@ -335,22 +339,45 @@ void ensure_connected_and_notifying(sd_bus* bus,
                                     sd_bus_slot*& slot,
                                     const std::vector<std::string_view>& names) {
   DBG << "[dbg] maintenance tick: ensuring connection and HR notifications\n";
+  static auto next_reacquire_attempt = std::chrono::steady_clock::time_point::min();
+  static auto next_connect_attempt = std::chrono::steady_clock::time_point::min();
+  static int connect_failures = 0;
+
+  auto now = std::chrono::steady_clock::now();
   if (dev_path.empty() || !path_has_interface(bus, dev_path, kDevice1)) {
-    std::cerr << "[warn] Device path missing; attempting reacquire...\n";
+    if (now < next_reacquire_attempt) return;
+    ERR << "[warn] Device path missing; attempting reacquire...\n";
     auto np = reacquire_device(bus, names);
     if (np) {
       dev_path = *np;
-      std::cerr << "[info] Reacquired device path: " << dev_path << "\n";
+      ERR << "[info] Reacquired device path: " << dev_path << "\n";
+      next_reacquire_attempt = now;
+      connect_failures = 0;
     } else {
-      std::cerr << "[warn] Device still not present.\n";
+      ERR << "[warn] Device still not present.\n";
+      next_reacquire_attempt = now + 10s;
       return;
     }
   }
 
   if (!get_device_connected(bus, dev_path)) {
-    std::cerr << "[info] Connecting (maintenance)...\n";
-    if (call_void(bus, dev_path, kDevice1, "Connect") < 0) {
-      std::cerr << "[warn] Connect() failed in maintenance.\n"; return;
+    if (now < next_connect_attempt) return;
+    ERR << "[info] Connecting (maintenance)...\n";
+    std::string err_name;
+    if (call_void(bus, dev_path, kDevice1, "Connect", &err_name, nullptr) < 0) {
+      ERR << "[warn] Connect() failed in maintenance.\n";
+      if (err_name == "org.bluez.Error.InProgress") {
+        next_connect_attempt = now + 3s;
+        return;
+      }
+      connect_failures++;
+      auto backoff = std::min(30s, std::chrono::seconds(1 << std::min(connect_failures, 5)));
+      if (err_name == "org.freedesktop.DBus.Error.Timeout" ||
+          err_name == "org.bluez.Error.Failed") {
+        backoff = std::max(backoff, 5s);
+      }
+      next_connect_attempt = now + backoff;
+      return;
     }
 
     auto deadline = std::chrono::steady_clock::now() + 20s;
@@ -359,20 +386,24 @@ void ensure_connected_and_notifying(sd_bus* bus,
       std::this_thread::sleep_for(500ms);
     }
     if (!get_device_connected(bus, dev_path)) {
-      std::cerr << "[warn] Connect timeout in maintenance.\n";
+      ERR << "[warn] Connect timeout in maintenance.\n";
+      connect_failures++;
+      next_connect_attempt = std::chrono::steady_clock::now() + 5s;
       return;
     }
-    std::cerr << "[info] Connected (maintenance).\n";
+    ERR << "[info] Connected (maintenance).\n";
+    connect_failures = 0;
+    next_connect_attempt = std::chrono::steady_clock::now();
   }
 
   if (ch_path.empty() || !path_has_interface(bus, ch_path, kGattChar1)) {
     auto np = find_char_by_uuid(bus, dev_path, kHRCharUUID);
     if (!np) {
-      std::cerr << "[warn] HR characteristic not present yet.\n";
+      ERR << "[warn] HR characteristic not present yet.\n";
       return;
     }
     if (*np != ch_path) {
-      std::cerr << "[info] HR characteristic path changed -> " << *np << "\n";
+      ERR << "[info] HR characteristic path changed -> " << *np << "\n";
       if (slot) { sd_bus_slot_unref(slot); slot = nullptr; }
       ch_path = *np;
       std::string match =
@@ -387,12 +418,12 @@ void ensure_connected_and_notifying(sd_bus* bus,
   if (!ch_path.empty()) {
     auto n = get_char_notifying(bus, ch_path);
     if (!n.has_value() || !*n) {
-      std::cerr << "[info] Notifying=false (or unknown). Calling StartNotify...\n";
+      ERR << "[info] Notifying=false (or unknown). Calling StartNotify...\n";
       int r = start_notify(bus, ch_path);
       if (r < 0) {
-        std::cerr << "[warn] StartNotify failed in maintenance.\n";
+        ERR << "[warn] StartNotify failed in maintenance.\n";
       } else {
-        std::cerr << "[info] StartNotify ok (maintenance).\n";
+        ERR << "[info] StartNotify ok (maintenance).\n";
       }
     } else {
       DBG << "[dbg] Notifying=true\n";

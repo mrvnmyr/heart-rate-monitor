@@ -23,7 +23,9 @@ struct FoundDev {
 std::optional<FoundDev> find_any_device_by_names(sd_bus* bus,
                                                  const std::vector<std::string_view>& names);
 int call_void(sd_bus* bus, const std::string& path,
-              std::string_view iface, std::string_view method);
+              std::string_view iface, std::string_view method,
+              std::string* out_err_name = nullptr,
+              std::string* out_err_msg = nullptr);
 bool get_device_connected(sd_bus* bus, const std::string& dev_path);
 std::optional<std::string> find_char_by_uuid(sd_bus* bus,
                                              const std::string& dev_path,
