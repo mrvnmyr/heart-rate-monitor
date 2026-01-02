@@ -168,12 +168,17 @@ int main(int argc, char** argv) {
 
   // Parse flags
   for (int i = 1; i < argc; ++i) {
-    if (std::string_view(argv[i]) == "-d" || std::string_view(argv[i]) == "--debug") {
+    std::string_view arg = argv[i];
+    if (arg == "-d" || arg == "--debug") {
       g_debug = true;
-    } else if (std::string_view(argv[i]) == "--health-warnings") {
+    } else if (arg == "--health-warnings") {
       g_health_warnings = true;
-    } else if (std::string_view(argv[i]) == "-h" || std::string_view(argv[i]) == "--help") {
+    } else if (arg == "-h" || arg == "--help") {
       show_help = true;
+    } else {
+      ERR << "[err] Unknown option: " << arg << "\n";
+      print_help(argv[0]);
+      return EXIT_FAILURE;
     }
   }
 
