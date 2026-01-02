@@ -22,7 +22,8 @@ static void print_help(const char* prog) {
     << "Options:\n"
     << "  -h, --help      Show this help and exit\n"
     << "  -d, --debug     Verbose debug logs to stderr\n"
-    << "  --health-warnings  Emit brady/tachy/arrhythmia warnings\n\n"
+    << "  -hw, --health-warning, --health-warnings\n"
+    << "                 Emit brady/tachy/arrhythmia warnings\n\n"
     << "Output:\n"
     << "  Lines to stdout in the form: <epoch_ms>,<bpm>[,<rr_ms>...]\n"
     << "  RR values are converted from 1/1024 s ticks to milliseconds.\n";
@@ -171,7 +172,7 @@ int main(int argc, char** argv) {
     std::string_view arg = argv[i];
     if (arg == "-d" || arg == "--debug") {
       g_debug = true;
-    } else if (arg == "--health-warnings") {
+    } else if (arg == "--health-warnings" || arg == "--health-warning" || arg == "-hw") {
       g_health_warnings = true;
     } else if (arg == "-h" || arg == "--help") {
       show_help = true;

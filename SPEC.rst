@@ -34,7 +34,7 @@ Binary name: ``polarm``
 Flags:
 - ``-h`` / ``--help``: print usage and exit
 - ``-d`` / ``--debug``: enable verbose debug logging to stderr
-- ``--health-warnings``: emit health screening warnings to stderr
+- ``-hw`` / ``--health-warning`` / ``--health-warnings``: emit health screening warnings to stderr
 
 Output Format
 -------------
@@ -49,7 +49,7 @@ Where:
 
 Health Warnings
 ---------------
-When ``--health-warnings`` is enabled, the program emits warnings to stderr and
+When ``--health-warnings`` (or an alias) is enabled, the program emits warnings to stderr and
 rings the terminal bell (``\a``) on detection of:
 - Bradycardia: BPM below 60.
 - Tachycardia: BPM above 100.

@@ -53,6 +53,8 @@ Notes
 - Extra debug prints are included to help diagnose discovery, connection,
   characteristic lookup, notification flow, value parsing (flags/BPM/RR),
   battery and generic streams, and entry points. Use ``-d``/``--debug``.
+- Optional health screening warnings go to stderr when enabled with
+  ``-hw``/``--health-warning``/``--health-warnings``.
 
 Troubleshooting
 ---------------
