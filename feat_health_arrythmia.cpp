@@ -127,14 +127,42 @@ std::string fmt_metric(double v) {
 
 }  // namespace
 
-void health_check_arrhythmia(const std::vector<int>& rr_ms) {
+void health_check_arrhythmia(const std::vector<int>& rr_ms, long long ts_ms) {
   static std::deque<int> s_rr_raw;
   static bool s_possible_af = false;
+  static long long s_af_start_ms = 0;
+  static bool s_pause_active = false;
+  static long long s_pause_start_ms = 0;
+  static int s_pause_min_rr = 0;
+  static int s_pause_max_rr = 0;
+  static bool s_ectopic_active = false;
+  static long long s_ectopic_start_ms = 0;
+  static int s_ectopic_count = 0;
 
   for (int rr : rr_ms) {
     if (rr < kMinRRms || rr > kMaxRRms) {
+      if (!s_pause_active) {
+        s_pause_active = true;
+        s_pause_start_ms = ts_ms;
+        s_pause_min_rr = rr;
+        s_pause_max_rr = rr;
+      } else {
+        s_pause_min_rr = std::min(s_pause_min_rr, rr);
+        s_pause_max_rr = std::max(s_pause_max_rr, rr);
+      }
       warn_pause_or_artifact(rr);
       continue;
+    } else if (s_pause_active) {
+      long long dur_ms = (ts_ms >= s_pause_start_ms) ? (ts_ms - s_pause_start_ms) : 0;
+      if (dur_ms > 1000) {
+        std::ostringstream oss;
+        oss << "Arrhythmia recovered: pause/artifact"
+            << " duration=" << health_format_duration(dur_ms)
+            << " min_rr=" << s_pause_min_rr
+            << " max_rr=" << s_pause_max_rr;
+        health_emit_warning(oss.str());
+      }
+      s_pause_active = false;
     }
     s_rr_raw.push_back(rr);
     if (s_rr_raw.size() > kMaxRawRR) s_rr_raw.pop_front();
@@ -149,12 +177,37 @@ void health_check_arrhythmia(const std::vector<int>& rr_ms) {
       double r_next = static_cast<double>(c) / b;
       double r_next2 = static_cast<double>(d) / c;
       if ((r_prev <= 0.8) && (r_next >= 1.3) && (r_next2 <= 0.9)) {
+        if (!s_ectopic_active) {
+          s_ectopic_active = true;
+          s_ectopic_start_ms = ts_ms;
+          s_ectopic_count = 0;
+        }
+        ++s_ectopic_count;
         warn_ectopic_pattern(a, b, c, d);
+      } else if (s_ectopic_active) {
+        long long dur_ms = (ts_ms >= s_ectopic_start_ms) ? (ts_ms - s_ectopic_start_ms) : 0;
+        if (dur_ms > 1000) {
+          std::ostringstream oss;
+          oss << "Arrhythmia recovered: ectopic"
+              << " duration=" << health_format_duration(dur_ms)
+              << " count=" << s_ectopic_count;
+          health_emit_warning(oss.str());
+        }
+        s_ectopic_active = false;
       }
     }
   }
 
   if (s_rr_raw.size() < kAfWindow) {
+    if (s_possible_af) {
+      long long dur_ms = (ts_ms >= s_af_start_ms) ? (ts_ms - s_af_start_ms) : 0;
+      if (dur_ms > 1000) {
+        std::ostringstream oss;
+        oss << "Arrhythmia recovered: possible AF"
+            << " duration=" << health_format_duration(dur_ms);
+        health_emit_warning(oss.str());
+      }
+    }
     s_possible_af = false;
     return;
   }
@@ -162,6 +215,15 @@ void health_check_arrhythmia(const std::vector<int>& rr_ms) {
   std::vector<int> raw(s_rr_raw.begin(), s_rr_raw.end());
   std::vector<double> cleaned = dash_style_clean_rr(raw);
   if (cleaned.size() < kAfWindow) {
+    if (s_possible_af) {
+      long long dur_ms = (ts_ms >= s_af_start_ms) ? (ts_ms - s_af_start_ms) : 0;
+      if (dur_ms > 1000) {
+        std::ostringstream oss;
+        oss << "Arrhythmia recovered: possible AF"
+            << " duration=" << health_format_duration(dur_ms);
+        health_emit_warning(oss.str());
+      }
+    }
     s_possible_af = false;
     return;
   }
@@ -173,12 +235,21 @@ void health_check_arrhythmia(const std::vector<int>& rr_ms) {
   bool possible = (r > 0.1) && (t > 0.54) && (t < 0.77) && (e > 0.7);
 
   if (possible && !s_possible_af) {
+    s_af_start_ms = ts_ms;
     std::ostringstream oss;
     oss << "Arrhythmia: possible AF (RR-only screening)"
         << " rmssd_ratio=" << fmt_metric(r)
         << " tpr=" << fmt_metric(t)
         << " se=" << fmt_metric(e);
     health_emit_warning(oss.str());
+  } else if (!possible && s_possible_af) {
+    long long dur_ms = (ts_ms >= s_af_start_ms) ? (ts_ms - s_af_start_ms) : 0;
+    if (dur_ms > 1000) {
+      std::ostringstream oss;
+      oss << "Arrhythmia recovered: possible AF"
+          << " duration=" << health_format_duration(dur_ms);
+      health_emit_warning(oss.str());
+    }
   }
   s_possible_af = possible;
 }

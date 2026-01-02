@@ -537,7 +537,7 @@ int props_changed_cb(sd_bus_message* m, void* userdata, sd_bus_error* ret_error)
             health_check_tachycardia(bpm, t);
           }
           if (!rr_ms.empty()) {
-            health_check_arrhythmia(rr_ms);
+            health_check_arrhythmia(rr_ms, t);
           }
         }
         std::cout << out << "\n";

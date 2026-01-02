@@ -22,4 +22,5 @@ inline void health_emit_warning(std::string_view msg) {
 
 void health_check_bradycardia(int bpm, long long ts_ms);
 void health_check_tachycardia(int bpm, long long ts_ms);
-void health_check_arrhythmia(const std::vector<int>& rr_ms);
+void health_check_arrhythmia(const std::vector<int>& rr_ms, long long ts_ms);
+std::string health_format_duration(long long ms);

@@ -56,7 +56,7 @@ int analyze_log(const std::string& path) {
     health_check_bradycardia(bpm, ts);
     health_check_tachycardia(bpm, ts);
     if (!rr_ms.empty()) {
-      health_check_arrhythmia(rr_ms);
+      health_check_arrhythmia(rr_ms, ts);
     }
     g_health_warning_prefix.clear();
     g_health_warning_ts_ms = -1;

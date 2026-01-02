@@ -26,6 +26,7 @@ sources = [
   'device_polar_h9.cpp',
   'device_polar_h10.cpp',
   'feat_analyze_log.cpp',
+  'feat_health.cpp',
   'feat_health_bradycardia.cpp',
   'feat_health_tachycardia.cpp',
   'feat_health_arrythmia.cpp',
