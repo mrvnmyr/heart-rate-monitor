@@ -35,6 +35,7 @@ Flags:
 - ``-h`` / ``--help``: print usage and exit
 - ``-d`` / ``--debug``: enable verbose debug logging to stderr
 - ``-hw`` / ``--health-warning`` / ``--health-warnings``: emit health screening warnings to stderr
+- ``--analyze-log <path>``: parse stdout log lines and emit health warnings for matching entries
 
 Output Format
 -------------

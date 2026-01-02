@@ -4,15 +4,19 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <fstream>
+#include <cctype>
 
 #include "debug.hpp"
 #include "bluetooth.hpp"
 #include "device_polar.hpp"
+#include "health.hpp"
 
 using namespace std::chrono_literals;
 
 bool g_debug = false;  // defined for debug.hpp / other TUs
 bool g_health_warnings = false;
+std::string g_health_warning_prefix;
 
 static void print_help(const char* prog) {
   const char* p = (prog && *prog) ? prog : "polarm";
@@ -23,10 +27,61 @@ static void print_help(const char* prog) {
     << "  -h, --help      Show this help and exit\n"
     << "  -d, --debug     Verbose debug logs to stderr\n"
     << "  -hw, --health-warning, --health-warnings\n"
-    << "                 Emit brady/tachy/arrhythmia warnings\n\n"
+    << "                 Emit brady/tachy/arrhythmia warnings\n"
+    << "  --analyze-log <path>  Analyze stdout log and emit warnings\n\n"
     << "Output:\n"
     << "  Lines to stdout in the form: <epoch_ms>,<bpm>[,<rr_ms>...]\n"
     << "  RR values are converted from 1/1024 s ticks to milliseconds.\n";
+}
+
+static bool parse_log_line(const std::string& line, std::vector<long long>* out) {
+  out->clear();
+  if (line.empty()) return false;
+  size_t i = 0;
+  while (i < line.size()) {
+    if (!std::isdigit(static_cast<unsigned char>(line[i]))) return false;
+    long long v = 0;
+    while (i < line.size() && std::isdigit(static_cast<unsigned char>(line[i]))) {
+      v = v * 10 + (line[i] - '0');
+      ++i;
+    }
+    out->push_back(v);
+    if (i == line.size()) break;
+    if (line[i] != ',') return false;
+    ++i;
+  }
+  return out->size() >= 2;
+}
+
+static int analyze_log(const std::string& path) {
+  std::ifstream in(path);
+  if (!in) {
+    ERR << "[err] Unable to open log file: " << path << "\n";
+    return EXIT_FAILURE;
+  }
+
+  std::string line;
+  std::vector<long long> fields;
+  while (std::getline(in, line)) {
+    if (!parse_log_line(line, &fields)) continue;
+    long long ts = fields[0];
+    int bpm = static_cast<int>(fields[1]);
+    std::vector<int> rr_ms;
+    rr_ms.reserve(fields.size() > 2 ? (fields.size() - 2) : 0);
+    for (size_t i = 2; i < fields.size(); ++i) {
+      rr_ms.push_back(static_cast<int>(fields[i]));
+    }
+
+    g_health_warning_prefix = "ts=" + std::to_string(ts);
+    health_check_bradycardia(bpm);
+    health_check_tachycardia(bpm);
+    if (!rr_ms.empty()) {
+      health_check_arrhythmia(rr_ms);
+    }
+    g_health_warning_prefix.clear();
+  }
+
+  return 0;
 }
 
 static int run_impl() {
@@ -166,6 +221,7 @@ static int run_impl() {
 
 int main(int argc, char** argv) {
   bool show_help = false;
+  std::string analyze_log_path;
 
   // Parse flags
   for (int i = 1; i < argc; ++i) {
@@ -176,6 +232,13 @@ int main(int argc, char** argv) {
       g_health_warnings = true;
     } else if (arg == "-h" || arg == "--help") {
       show_help = true;
+    } else if (arg == "--analyze-log") {
+      if (i + 1 >= argc) {
+        ERR << "[err] --analyze-log requires a path\n";
+        print_help(argv[0]);
+        return EXIT_FAILURE;
+      }
+      analyze_log_path = argv[++i];
     } else {
       ERR << "[err] Unknown option: " << arg << "\n";
       print_help(argv[0]);
@@ -186,6 +249,10 @@ int main(int argc, char** argv) {
   if (show_help) {
     print_help(argv[0]);
     return 0;
+  }
+
+  if (!analyze_log_path.empty()) {
+    return analyze_log(analyze_log_path);
   }
 
   DBG << "[dbg] main(): debug enabled\n";

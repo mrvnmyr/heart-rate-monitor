@@ -55,6 +55,8 @@ Notes
   battery and generic streams, and entry points. Use ``-d``/``--debug``.
 - Optional health screening warnings go to stderr when enabled with
   ``-hw``/``--health-warning``/``--health-warnings``.
+- Use ``--analyze-log <path>`` to replay a stdout log and emit warnings for
+  matching lines.
 
 Troubleshooting
 ---------------
